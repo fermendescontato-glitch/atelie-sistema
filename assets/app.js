@@ -5,6 +5,9 @@
 (function () {
   'use strict';
 
+  window.__APP_OK__ = true;
+  const App = (window.App = window.App || { paginas: {} });
+  App.paginas = App.paginas || {};
   const cfg = window.APP_CONFIG;
   const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey);
 
@@ -158,9 +161,9 @@
      --------------------------------------------------------------- */
   const MENU = [
     { rota: 'inicio', rotulo: 'Início' },
-    { rota: 'novo', rotulo: 'Novo projeto', breve: true },
-    { rota: 'projetos', rotulo: 'Projetos', breve: true },
-    { rota: 'propostas', rotulo: 'Propostas', breve: true },
+    { rota: 'assistente', rotulo: 'Assistente' },
+    { rota: 'projetos', rotulo: 'Projetos', tambem: ['projeto'] },
+    { rota: 'propostas', rotulo: 'Propostas', tambem: ['proposta'] },
     { rota: 'clientes', rotulo: 'Clientes' },
     { rota: 'biblioteca', rotulo: 'Biblioteca' },
     { rota: 'configuracoes', rotulo: 'Configurações' }
@@ -170,12 +173,13 @@
 
   function telaShell() {
     const atual = rotaAtual();
+    if (atual === 'imprimir') { (App.paginas.imprimir || paginaEmBreve)().catch(erro); return; }
     const p = estado.perfil || {};
     app.innerHTML = `
       <div class="shell">
         <nav class="menu" aria-label="Menu principal">
           <div class="marca">ATELIÊ<strong>${esc(p.nome_marca || 'Meu ateliê')}</strong></div>
-          ${MENU.map((m) => `<a href="#/${m.rota}" class="${m.rota === atual ? 'ativo' : ''}">${esc(m.rotulo)}${m.breve ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('')}
+          ${MENU.map((m) => `<a href="#/${m.rota}" class="${m.rota === atual || (m.tambem || []).includes(atual) ? 'ativo' : ''}">${esc(m.rotulo)}${m.breve ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('')}
           <div class="rodape">
             ${esc(p.nome || p.email || '')}${ehAdmin() ? ' · admin' : ''}<br>
             <button type="button" id="sair">Sair</button>
@@ -185,7 +189,7 @@
         <main class="conteudo" id="conteudo"><div class="carregando">Carregando...</div></main>
       </div>`;
     document.getElementById('sair').addEventListener('click', () => sb.auth.signOut());
-    const paginas = { inicio: paginaInicio, clientes: paginaClientes, biblioteca: paginaBiblioteca, configuracoes: paginaConfiguracoes };
+    const paginas = Object.assign({ inicio: paginaInicio, clientes: paginaClientes, biblioteca: paginaBiblioteca, configuracoes: paginaConfiguracoes }, App.paginas);
     (paginas[atual] || paginaEmBreve)().catch(erro);
   }
 
@@ -212,8 +216,8 @@
       <div class="cabecalho"><div><h1>Olá${p.nome ? ', ' + esc(p.nome.split(' ')[0]) : ''}!</h1><p>O que vamos criar hoje?</p></div></div>
       ${pendencias.length ? `<div class="aviso" style="margin-bottom:20px">Para o sistema calcular e precificar certinho, complete ${pendencias.map(esc).join(', ')}. <a href="#/${!materiais.length && Number(p.valor_hora) && p.logo_url ? 'biblioteca' : 'configuracoes'}">Completar agora</a></div>` : ''}
       <div class="atalhos">
-        <button class="atalho" disabled><strong>Novo projeto sob medida</strong><span>Guarda-corpo, painel, cortina... Em breve.</span></button>
-        <button class="atalho" disabled><strong>Nova peça de catálogo</strong><span>Hang plant, bolsa, colar... Em breve.</span></button>
+        <a class="atalho" href="#/projeto/novo/sob_medida"><strong>Novo projeto sob medida</strong><span>Guarda-corpo, painel, cortina...</span></a>
+        <a class="atalho" href="#/projeto/novo/catalogo"><strong>Nova peça de catálogo</strong><span>Hang plant, bolsa, colar...</span></a>
         <button class="atalho oliva" disabled><strong>Nova venda</strong><span>Registrar um pedido. Em breve.</span></button>
       </div>
       <div class="indicadores">
@@ -780,6 +784,11 @@
   }
 
   /* ---------------------------------------------------------------
+     Compartilhado com os outros módulos (projetos, propostas, assistente)
+     --------------------------------------------------------------- */
+  Object.assign(App, { sb, estado, cfg, esc, moeda, numero, valorNum, toast, erro, traduzErro, abrirModal, campo, entrada, numeroCom, opcoes, opcoesLista, area, ehAdmin, ehMeu, nomeTipo, telaShell, formCliente, TIPOS_TRAMA, MODELOS });
+
+  /* ---------------------------------------------------------------
      Inicialização
      --------------------------------------------------------------- */
   async function aoMudarSessao(sessao) {
@@ -792,7 +801,7 @@
 
   window.addEventListener('hashchange', () => { if (estado.sessao) telaShell(); });
 
-  sb.auth.getSession().then(({ data }) => aoMudarSessao(data.session));
+  sb.auth.getSession().then(({ data }) => aoMudarSessao(data.session)).catch((e) => { console.error(e); telaLogin(); });
   sb.auth.onAuthStateChange((evento, sessao) => {
     if (evento === 'SIGNED_IN' && estado.sessao && sessao && estado.sessao.user.id === sessao.user.id) { estado.sessao = sessao; return; }
     if (evento === 'TOKEN_REFRESHED') { estado.sessao = sessao; return; }

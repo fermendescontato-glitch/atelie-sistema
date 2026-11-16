@@ -4,5 +4,5 @@
 window.APP_CONFIG = {
   supabaseUrl: 'https://dpkyqcbllthamcspcsml.supabase.co',
   supabaseKey: 'sb_publishable_GgYMzgnjQUwIypmwgfPzhw_cTUmP-pb',
-  versao: '0.1.0'
+  versao: '0.2.0'
 };

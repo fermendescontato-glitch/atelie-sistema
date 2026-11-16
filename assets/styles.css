@@ -134,3 +134,55 @@ table.lista{width:100%;border-collapse:collapse;background:var(--branco);border:
 .aviso{background:#faeeda;color:#633806;padding:12px 14px;border-radius:8px;font-size:14px}
 .carregando{padding:40px;text-align:center;color:var(--texto-2)}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------- v0.2: projetos, preço, propostas ---------- */
+a.atalho{text-decoration:none}
+a.atalho:hover{filter:brightness(.95)}
+.editor{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+@media (max-width:1100px){.editor{grid-template-columns:1fr}}
+.painel{position:sticky;top:20px;display:flex;flex-direction:column;gap:14px}
+.painel .card{padding:18px 18px}
+.painel h3{margin-bottom:8px}
+.comp{border:1px solid var(--linha);border-radius:var(--raio);background:var(--branco);margin-top:14px}
+.comp-topo{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--linha);background:var(--creme-2);border-radius:var(--raio) var(--raio) 0 0}
+.comp-topo strong{color:var(--terracota-esc)}
+.comp-topo .tipo{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--oliva-esc)}
+.comp-topo .direita{margin-left:auto;display:flex;gap:4px}
+.comp-corpo{padding:16px}
+.comp-res{margin-top:14px}
+.add-comp{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.linhas{display:flex;flex-direction:column;gap:4px;font-size:14px}
+.linhas div{display:flex;justify-content:space-between;gap:10px}
+.linhas div span:last-child{font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+.linhas .total{border-top:1px solid var(--linha);padding-top:6px;margin-top:4px;font-size:16px;color:var(--terracota)}
+.alerta-prejuizo{background:var(--perigo-bg);color:var(--perigo);padding:10px 12px;border-radius:8px;font-weight:700;font-size:14px}
+.ok-msg{background:var(--ok-bg);color:var(--ok);padding:10px 12px;border-radius:8px;font-size:14px}
+.desenho{background:var(--branco);border:1px solid var(--linha);border-radius:8px;padding:10px;overflow:auto}
+.desenho svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.selo.status-rascunho{background:#eee;color:#555}
+.selo.status-calculado{background:#e6f1fb;color:#0c447c}
+.selo.status-em_proposta,.selo.status-enviada{background:#faeeda;color:#633806}
+.selo.status-aprovado,.selo.status-aceita{background:var(--ok-bg);color:var(--ok)}
+.selo.status-pausado,.selo.status-recusada,.selo.status-expirada{background:var(--perigo-bg);color:var(--perigo)}
+.selo.status-arquivado{background:#eee;color:#777}
+.miniaturas{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.miniaturas .foto{width:110px}
+.radios{display:flex;gap:8px;flex-wrap:wrap}
+.radios label{display:flex;gap:8px;align-items:center;border:1.5px solid var(--linha);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:700;font-size:14px;background:var(--branco)}
+.radios label:has(input:checked){border-color:var(--terracota);color:var(--terracota);background:var(--creme)}
+.radios input{accent-color:var(--terracota)}
+
+/* ---------- Impressão (proposta e ficha) ---------- */
+.impressao-barra{position:sticky;top:0;z-index:5;display:flex;gap:10px;justify-content:center;align-items:center;padding:12px;background:var(--texto);color:var(--creme);flex-wrap:wrap}
+.impressao-barra .botao.sec{color:var(--creme);border-color:var(--creme)}
+.folhas{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px 0 60px;background:#d9d2c5}
+.folha{width:210mm;min-height:297mm;background:var(--branco);position:relative;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.15);padding:18mm 16mm;display:flex;flex-direction:column}
+@media print{
+  @page{size:A4;margin:0}
+  body{background:#fff}
+  .impressao-barra,.toast{display:none!important}
+  .folhas{padding:0;gap:0;background:none}
+  .folha{box-shadow:none;page-break-after:always;break-after:page;width:210mm;height:297mm;min-height:0}
+  .folha:last-child{page-break-after:auto;break-after:auto}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
