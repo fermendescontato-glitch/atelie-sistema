@@ -254,8 +254,10 @@
         const ins = await sb.from('proposta_itens').insert(ed.itens.map((it, i) => ({ proposta_id: id, projeto_id: it.projeto_id, opcao: it.opcao || null, ordem: i, descricao_cliente: it.descricao_cliente, material_cliente: it.material_cliente, valor: Number(it.valor) || 0 })));
         if (ins.error) throw ins.error;
         const ids = ed.itens.map((i) => i.projeto_id).filter(Boolean);
-        if (ids.length) await sb.from('projetos').update({ status: p.status === 'aceita' ? 'aprovado' : 'em_proposta' }).in('id', ids).in('status', ['rascunho', 'calculado', 'em_proposta']);
-        toast('Proposta salva.');
+        if (ids.length) await sb.from('projetos').update({ status: p.status === 'aceita' ? 'aprovado' : 'em_proposta' }).in('id', ids).in('status', p.status === 'aceita' ? ['em_criacao', 'pronto', 'em_proposta'] : ['em_criacao', 'pronto']);
+        if (p.status === 'aceita' && App.criarVendaDaProposta) {
+          try { await App.criarVendaDaProposta(id); toast('Proposta aceita: a venda e as parcelas foram criadas em Vendas.'); } catch (e) { erro(e); }
+        } else toast('Proposta salva.');
         if (!p.id) location.hash = '#/proposta/' + id; else App.paginas.proposta().catch(erro);
       } catch (e) { erro(e); } finally { bt.disabled = false; }
     });

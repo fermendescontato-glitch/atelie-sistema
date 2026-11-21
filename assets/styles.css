@@ -186,3 +186,33 @@ a.atalho:hover{filter:brightness(.95)}
   .folha:last-child{page-break-after:auto;break-after:auto}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+
+/* ---------- v0.3 ---------- */
+.info{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--oliva);color:#fff;font-size:11px;font-weight:900;font-style:italic;font-family:Georgia,serif;cursor:help;position:relative;margin-left:5px;vertical-align:1px}
+.info:hover::after,.info:focus::after{content:attr(data-dica);position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:max-content;max-width:260px;background:var(--texto);color:var(--creme);padding:8px 10px;border-radius:8px;font:400 12px/1.45 Lato,system-ui,sans-serif;text-transform:none;letter-spacing:0;z-index:60;white-space:normal;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+.info:focus{outline:2px solid var(--terracota);outline-offset:1px}
+.passos{display:flex;gap:6px;margin:0 0 22px;flex-wrap:wrap;counter-reset:passo}
+.passos button{flex:1;min-width:120px;display:flex;align-items:center;gap:8px;border:0;background:var(--branco);border:1px solid var(--linha);border-radius:10px;padding:10px 12px;font-weight:700;color:var(--texto-2);text-align:left}
+.passos button::before{counter-increment:passo;content:counter(passo);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--creme-2);color:var(--texto-2);font-size:12px;flex:0 0 24px}
+.passos button.feito::before{content:'✓';background:var(--oliva);color:#fff}
+.passos button.atual{border-color:var(--terracota);color:var(--terracota);background:var(--creme)}
+.passos button.atual::before{background:var(--terracota);color:#fff}
+.passos button:disabled{opacity:.55;cursor:default}
+.tipos{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.tipo-card{border:1.5px solid var(--linha);background:var(--branco);border-radius:12px;padding:18px 16px;text-align:left;display:flex;flex-direction:column;gap:6px;min-height:120px}
+.tipo-card .ico{font-size:28px;color:var(--terracota);line-height:1}
+.tipo-card strong{font-size:16px;color:var(--texto)}
+.tipo-card span{font-size:13px;color:var(--texto-2)}
+.tipo-card:hover{border-color:var(--terracota)}
+.tipo-card.escolhido{border-color:var(--terracota);background:var(--creme);box-shadow:0 0 0 2px var(--terracota) inset}
+.navegar{display:flex;justify-content:space-between;gap:10px;margin-top:20px;flex-wrap:wrap}
+.selo.status-em_criacao{background:#eee;color:#555}
+.selo.status-pronto{background:#e6f1fb;color:#0c447c}
+.selo.status-em_producao{background:#efe9cf;color:var(--oliva-esc)}
+.selo.status-entregue,.selo.status-quitada,.selo.status-recebido,.selo.status-pago{background:var(--ok-bg);color:var(--ok)}
+.selo.status-aberta,.selo.status-pendente{background:#faeeda;color:#633806}
+.selo.status-cancelada{background:#eee;color:#777}
+.formulario-chat{background:var(--branco);border:1.5px solid var(--oliva);border-radius:14px;padding:16px;align-self:stretch;max-width:100%}
+.formulario-chat h4{margin:0 0 4px;color:var(--terracota);font-size:16px}
+.formulario-chat .grade{gap:12px}
+.atrasado{color:var(--perigo);font-weight:700}

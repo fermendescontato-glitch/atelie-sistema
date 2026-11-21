@@ -1,34 +1,39 @@
 /* =====================================================================
-   Assistente: conversa com a IA. A IA pergunta (com opções), pede
-   cálculos à calculadora do sistema e abre o projeto no editor.
+   Nath · assistente do sistema
+   - Entende o projeto que está na cabeça da artesã e cria no sistema
+   - Pede tudo de uma vez, num formulário dentro do chat (economiza)
+   - Tira dúvidas do ofício. Números sempre pela calculadora ou pela
+     ferramenta de conta exata, nunca de cabeça.
    ===================================================================== */
 (function () {
   'use strict';
   const App = window.App;
-  const { sb, estado, esc, moeda, numero, toast, erro, area } = App;
+  const { sb, estado, esc, numero, toast, area } = App;
 
   const conv = { id: null, mensagens: [], pendentes: null, ctx: null, uso: null, ocupado: false };
 
   function contextoTexto(ctx) {
     const p = ctx.perfil || {};
     const nomeMat = (m) => [App.nomeTipo(m.tipo_material_id), m.espessura_mm ? m.espessura_mm + ' mm' : '', m.cor, m.marca].filter(Boolean).join(' ');
-    const linhas = [];
-    linhas.push(`Configurações: valor da hora R$ ${p.valor_hora || 0}; margem ${p.margem_padrao_pct || 0}%; taxa ${p.taxa_maquininha_pct || 0}%; imposto ${p.imposto_pct || 0}%; sobra por fio ${p.sobra_por_fio_cm ?? 10} cm; ponta ${p.ponta_cm ?? 20} cm; acabamento por gancho ${p.acabamento_gancho_m ?? 1} m.`);
-    linhas.push('Materiais (id | descrição | unidade de uso | custo):');
-    ctx.materiais.forEach((m) => linhas.push(`- ${m.id} | ${nomeMat(m)} | ${m.unidade_consumo} | R$ ${Number(m.custo_por_unidade || 0).toFixed(4)}`));
-    if (!ctx.materiais.length) linhas.push('- (nenhum material cadastrado)');
-    linhas.push('Tramas (id | nome | tipo | medidas):');
-    ctx.tramas.forEach((t) => linhas.push(`- ${t.id} | ${t.nome} | ${t.tipo}${t.tipo === 'geral' ? ` | ${t.largura_trama_cm} cm, ${t.fios_por_trama} fios, ${t.rendimento_metros} m fazem ${t.rendimento_cm} cm` : ''}`));
-    linhas.push('Nós (id | nome): ' + ctx.nos.map((n) => `${n.id} | ${n.nome}`).join('; '));
-    linhas.push('Categorias (id | nome | modelo): ' + ctx.categorias.map((c) => `${c.id} | ${c.nome} | ${c.modelo}`).join('; '));
-    linhas.push('Clientes (id | nome | cidade): ' + ctx.clientes.slice(0, 80).map((c) => `${c.id} | ${c.nome} | ${c.cidade || ''}`).join('; '));
-    return linhas.join('\n');
+    const L = [];
+    L.push(`Configurações: hora R$ ${p.valor_hora || 0}; margem ${p.margem_padrao_pct || 0}%; taxa ${p.taxa_maquininha_pct || 0}%; imposto ${p.imposto_pct || 0}%; sobra por fio ${p.sobra_por_fio_cm ?? 10} cm; ganchos: espaço ${p.esp_min_padrao ?? 9} a ${p.esp_max_padrao ?? 10} cm, margem ${p.margem_vao_cm ?? 2.5} cm, ponta ${p.ponta_cm ?? 20} cm, acabamento ${p.acabamento_gancho_m ?? 1} m por gancho.`);
+    L.push('Materiais (id | descrição | unidade | custo por unidade):');
+    ctx.materiais.forEach((m) => L.push(`- ${m.id} | ${nomeMat(m)} | ${m.unidade_consumo} | R$ ${Number(m.custo_por_unidade || 0).toFixed(4)}`));
+    if (!ctx.materiais.length) L.push('- (nenhum material cadastrado)');
+    L.push('Tramas (id | nome | tipo | medidas):');
+    ctx.tramas.forEach((t) => L.push(`- ${t.id} | ${t.nome} | ${t.tipo}${t.tipo === 'geral' ? ` | ${t.largura_trama_cm} cm, ${t.fios_por_trama} fios, ${t.rendimento_metros} m fazem ${t.rendimento_cm} cm` : ''}`));
+    L.push('Nós (id | nome): ' + ctx.nos.map((n) => `${n.id} | ${n.nome}`).join('; '));
+    L.push('Tipos de peça (id | nome | família): ' + ctx.categorias.map((c) => `${c.id} | ${c.nome} | ${c.familia || 'livre'}`).join('; '));
+    L.push('Clientes (id | nome | cidade): ' + ctx.clientes.slice(0, 80).map((c) => `${c.id} | ${c.nome} | ${c.cidade || ''}`).join('; '));
+    return L.join('\n');
   }
 
   /* ---------------- Ferramentas (rodam aqui, no navegador) ---------------- */
+  const normComp = (c) => ({ tipo: c.tipo, descricao: c.descricao || '', material_id: c.material_id || null, trama_id: c.trama_id || null, no_id: c.no_id || null, parametros: c.parametros || {} });
+
   function rodarCalcular(input) {
     const ctx = conv.ctx;
-    const comps = (input.componentes || []).map((c) => ({ tipo: c.tipo, descricao: c.descricao || '', material_id: c.material_id || null, trama_id: c.trama_id || null, no_id: c.no_id || null, parametros: c.parametros || {} }));
+    const comps = (input.componentes || []).map(normComp);
     const calc = window.Calc.calcularProjeto(comps, ctx);
     const p = ctx.perfil || {};
     const pr = Object.assign({ metodo: 'custo', horas: 0, valor_hora: p.valor_hora || 0, taxa_pct: p.taxa_maquininha_pct || 0, imposto_pct: p.imposto_pct || 0, margem_pct: p.margem_padrao_pct || 0, area_m2: calc.area_m2 }, input.preco || {});
@@ -41,7 +46,6 @@
         if (r.cortes) o.lista_de_corte = r.cortes;
         if (r.metros !== undefined) o.metros = r.metros;
         if (r.area_m2) o.area_m2 = r.area_m2;
-        if (r.detalhe) o.detalhe = r.detalhe;
         if (r.avisos && r.avisos.length) o.avisos = r.avisos;
         return o;
       }),
@@ -52,18 +56,47 @@
     };
   }
 
-  function rodarMontar(input) {
+  // Conta exata: só números, operações e algumas funções matemáticas.
+  function rodarConta(input) {
+    const exp = String(input.expressao || '').toLowerCase().replace(/\^/g, '**');
+    const semFuncoes = exp.replace(/\b(sqrt|ceil|floor|round|min|max|abs|pow|pi)\b/g, '');
+    if (!/^[0-9+\-*/().,%\s]*$/.test(semFuncoes) || /[a-z_$]/.test(semFuncoes)) return { erro: 'Expressão inválida. Use só números com ponto decimal, + - * / ( ) e sqrt, ceil, floor, round, min, max, abs, pow, pi.' };
+    try {
+      const js = exp.replace(/\b(sqrt|ceil|floor|round|min|max|abs|pow)\b/g, 'Math.$1').replace(/\bpi\b/g, 'Math.PI');
+      const v = Function('"use strict"; return (' + js + ');')();
+      if (typeof v !== 'number' || !isFinite(v)) return { erro: 'A conta não deu um número válido.' };
+      return { descricao: input.descricao || '', expressao: input.expressao, resultado: Math.round(v * 10000) / 10000 };
+    } catch (_) { return { erro: 'Não consegui fazer essa conta. Revise a expressão.' }; }
+  }
+
+  async function rodarCriarProjeto(input) {
+    const ctx = conv.ctx;
     const p = estado.perfil || {};
-    App.rascunhoAssistente = {
+    const cat = ctx.categorias.find((c) => c.id === input.categoria_id);
+    const familia = (cat && cat.familia) || 'livre';
+    const cliente = ctx.clientes.find((c) => c.id === input.cliente_id);
+    const ed = {
       projeto: {
-        nome: input.nome || 'Projeto do assistente', modelo: input.modelo === 'catalogo' ? 'catalogo' : 'sob_medida', status: 'rascunho', versao: 1,
-        referencias: [], categoria_id: input.categoria_id || null, cliente_id: input.cliente_id || null,
-        descricao_livre: input.descricao_livre || '', horas_trabalho: (input.preco && input.preco.horas) || 0
+        nome: input.nome || [cat && cat.nome, cliente ? cliente.nome : 'Portfólio'].filter(Boolean).join(' · '),
+        status: 'em_criacao', etapa: 5, versao: 1, referencias: [], categoria_id: cat ? cat.id : null,
+        cliente_id: cliente ? cliente.id : null, para_portfolio: !cliente, descricao_livre: input.descricao_livre || '',
+        horas_trabalho: (input.preco && input.preco.horas) || 0
       },
-      componentes: (input.componentes || []).map((c) => ({ tipo: c.tipo, descricao: c.descricao || '', material_id: c.material_id || null, trama_id: c.trama_id || null, no_id: c.no_id || null, parametros: c.parametros || {} })),
-      preco: Object.assign({ metodo: input.modelo === 'catalogo' ? 'custo' : 'm2', valor_hora: p.valor_hora || 0, taxa_pct: p.taxa_maquininha_pct || 0, imposto_pct: p.imposto_pct || 0, margem_pct: p.margem_padrao_pct || 0 }, input.preco || {})
+      componentes: (input.componentes || []).map(normComp),
+      preco: Object.assign(App.precoPadrao(p, familia), input.preco || {})
     };
-    return { ok: true, mensagem: 'Projeto pronto para abrir no editor. A artesã vai revisar e salvar.' };
+    const { id } = await App.gravarProjeto(ed, ctx);
+    conv.ultimoProjeto = { id, nome: ed.projeto.nome };
+    return { ok: true, projeto_id: id, mensagem: 'Projeto criado em Projetos, com status Em criação. A artesã revisa e conclui.' };
+  }
+
+  async function rodarFerramenta(u) {
+    try {
+      if (u.name === 'calcular') return JSON.stringify(rodarCalcular(u.input));
+      if (u.name === 'conta') return JSON.stringify(rodarConta(u.input));
+      if (u.name === 'criar_projeto') return JSON.stringify(await rodarCriarProjeto(u.input));
+      return JSON.stringify({ erro: 'Ferramenta desconhecida.' });
+    } catch (e) { return JSON.stringify({ erro: App.traduzErro(e) }); }
   }
 
   /* ---------------- Conversa ---------------- */
@@ -75,30 +108,26 @@
       for (let volta = 0; volta < 6; volta++) {
         const { data, error } = await sb.functions.invoke('assistente', { body: { mensagens: conv.mensagens, contexto: contextoTexto(conv.ctx) } });
         if (error) {
-          let msg = 'O assistente não respondeu.';
-          try { const j = await error.context.json(); msg = j.erro || msg; } catch (_) { if (/Failed to send|fetch/i.test(error.message)) msg = 'O assistente ainda não foi instalado no Supabase, ou está sem conexão.'; }
+          let msg = 'A Nath não respondeu agora.';
+          try { const j = await error.context.json(); msg = j.erro || msg; } catch (_) { if (/Failed to send|fetch/i.test(error.message)) msg = 'A Nath ainda não foi instalada no Supabase, ou está sem conexão.'; }
           throw new Error(msg);
         }
         conv.uso = data.uso;
         conv.mensagens.push({ role: 'assistant', content: data.content });
         const usos = (data.content || []).filter((b) => b.type === 'tool_use');
         if (data.stop_reason !== 'tool_use' || !usos.length) break;
-        // roda as ferramentas automáticas e guarda as perguntas
         const resultados = [];
-        let pergunta = null;
+        let formulario = null;
         for (const u of usos) {
-          if (u.name === 'calcular') resultados.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(rodarCalcular(u.input)) });
-          else if (u.name === 'montar_projeto') resultados.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(rodarMontar(u.input)) });
-          else if (u.name === 'perguntar') pergunta = u;
-          else resultados.push({ type: 'tool_result', tool_use_id: u.id, content: 'Ferramenta desconhecida.', is_error: true });
+          if (u.name === 'pedir_informacoes') formulario = u;
+          else resultados.push({ type: 'tool_result', tool_use_id: u.id, content: await rodarFerramenta(u) });
         }
-        if (pergunta) { conv.pendentes = { resultados, pergunta }; break; }
+        if (formulario) { conv.pendentes = { resultados, formulario }; break; }
         conv.mensagens.push({ role: 'user', content: resultados });
       }
       await guardar();
     } catch (e) {
       toast(e.message, true);
-      // desfaz a última mensagem da artesã para ela poder tentar de novo
       const ult = conv.mensagens[conv.mensagens.length - 1];
       if (ult && ult.role === 'user') conv.mensagens.pop();
     } finally {
@@ -107,18 +136,19 @@
     }
   }
 
-  function responder(texto, imagens = []) {
+  async function responder(texto, imagens = [], respostasForm = null) {
     texto = (texto || '').trim();
-    if (!texto && !imagens.length) return;
+    if (!texto && !imagens.length && !respostasForm) return;
     const blocos = [];
-    // se a última resposta pediu ferramentas e não recebeu resultado, responde agora
+    // última resposta pediu ferramentas e não recebeu resultado: responde agora
     const ult = conv.mensagens[conv.mensagens.length - 1];
     if (!conv.pendentes && ult && ult.role === 'assistant' && Array.isArray(ult.content)) {
-      ult.content.filter((x) => x.type === 'tool_use').forEach((u) => blocos.push({ type: 'tool_result', tool_use_id: u.id, content: u.name === 'calcular' ? JSON.stringify(rodarCalcular(u.input)) : JSON.stringify({ ok: true }) }));
+      for (const u of ult.content.filter((x) => x.type === 'tool_use')) blocos.push({ type: 'tool_result', tool_use_id: u.id, content: u.name === 'pedir_informacoes' ? 'A artesã respondeu por texto.' : await rodarFerramenta(u) });
     }
     if (conv.pendentes) {
       blocos.push(...conv.pendentes.resultados);
-      blocos.push({ type: 'tool_result', tool_use_id: conv.pendentes.pergunta.id, content: texto || '(enviou imagem)' });
+      const conteudo = respostasForm ? JSON.stringify({ respostas: respostasForm, observacao: texto || undefined }) : texto || '(enviou imagem)';
+      blocos.push({ type: 'tool_result', tool_use_id: conv.pendentes.formulario.id, content: conteudo });
       conv.pendentes = null;
       imagens.forEach((im) => blocos.push(im));
     } else {
@@ -130,10 +160,9 @@
   }
 
   async function guardar() {
-    const titulo = (() => { for (const m of conv.mensagens) if (m.role === 'user') { const t = (m.content || []).find((b) => b.type === 'text'); if (t) return t.text.slice(0, 80); } return 'Conversa'; })();
-    // imagens não são guardadas (ocupam muito espaço)
+    const titulo = (() => { for (const m of conv.mensagens) if (m.role === 'user' && Array.isArray(m.content)) { const t = m.content.find((b) => b.type === 'text'); if (t) return t.text.slice(0, 80); } return 'Conversa'; })();
     const leve = conv.mensagens.map((m) => ({ ...m, content: Array.isArray(m.content) ? m.content.map((b) => (b.type === 'image' ? { type: 'text', text: '[imagem enviada]' } : b)) : m.content }));
-    if (conv.id) await sb.from('ia_conversas').update({ mensagens: leve, titulo }).eq('id', conv.id);
+    if (conv.id) await sb.from('ia_conversas').update({ mensagens: leve, titulo, projeto_id: (conv.ultimoProjeto && conv.ultimoProjeto.id) || null }).eq('id', conv.id);
     else { const { data } = await sb.from('ia_conversas').insert({ mensagens: leve, titulo }).select('id').single(); if (data) conv.id = data.id; }
   }
 
@@ -145,47 +174,80 @@
     c.width = Math.round(img.width * f); c.height = Math.round(img.height * f);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
     URL.revokeObjectURL(url);
-    const dados = c.toDataURL('image/jpeg', 0.82).split(',')[1];
-    return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: dados } };
+    return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.82).split(',')[1] } };
   }
 
   /* ---------------- Tela ---------------- */
+  function formatar(t) {
+    return esc(String(t).replace(/\\n/g, '\n')).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  }
+
+  function htmlFormulario(u, ativo) {
+    const f = u.input || {};
+    const campos = (f.campos || []).slice(0, 14);
+    const c = (k) => `id="f-${esc(k.id)}" name="${esc(k.id)}" ${ativo ? '' : 'disabled'}`;
+    return `<form class="formulario-chat" data-form="${esc(u.id)}">
+      <h4>${esc(f.titulo || 'Preciso de algumas informações')}</h4>
+      ${f.introducao ? `<p style="margin:0 0 12px;font-size:14px;color:var(--texto-2)">${esc(f.introducao)}</p>` : ''}
+      <div class="grade g2">${campos.map((k) => {
+        let ctl;
+        if (k.tipo === 'opcoes' && Array.isArray(k.opcoes)) ctl = `<select ${c(k)}><option value="">Escolha...</option>${k.opcoes.map((o) => `<option>${esc(o)}</option>`).join('')}<option value="__outro">Outro (escrevo)</option></select><input data-outro="${esc(k.id)}" placeholder="Escreva aqui" style="display:none;margin-top:6px" ${ativo ? '' : 'disabled'}>`;
+        else if (k.tipo === 'texto_longo') ctl = `<textarea rows="2" ${c(k)}></textarea>`;
+        else if (k.tipo === 'numero') ctl = `<div class="com-sufixo"><input type="number" step="any" ${c(k)}><span>${esc(k.unidade || '')}</span></div>`;
+        else ctl = `<input ${c(k)}>`;
+        return `<div class="campo" ${k.tipo === 'texto_longo' ? 'style="grid-column:1/-1"' : ''}><label for="f-${esc(k.id)}">${esc(k.rotulo)}${k.obrigatorio ? ' *' : ''}${App.dica(k.ajuda || '')}</label>${ctl}</div>`;
+      }).join('')}</div>
+      ${ativo ? '<div class="acoes" style="margin-top:12px"><span class="ajuda" style="margin-right:auto;font-size:12px;color:var(--texto-2)">Não sabe algum? Deixe em branco.</span><button type="submit" class="botao">Enviar respostas</button></div>' : '<p class="ajuda" style="margin:8px 0 0;font-size:12px;color:var(--texto-2)">Respondido.</p>'}
+    </form>`;
+  }
+
   function bolhas() {
     const out = [];
-    conv.mensagens.forEach((m) => {
+    conv.mensagens.forEach((m, mi) => {
       const blocos = Array.isArray(m.content) ? m.content : [{ type: 'text', text: m.content }];
       blocos.forEach((b) => {
         if (m.role === 'user' && b.type === 'text') out.push(`<div class="bolha eu">${esc(b.text)}</div>`);
-        if (m.role === 'user' && b.type === 'image') out.push(`<div class="bolha eu"><img src="data:${b.source.media_type};base64,${b.source.data}" style="max-width:220px;border-radius:8px"></div>`);
-        if (m.role === 'user' && b.type === 'tool_result' && !/^[{[]/.test(String(b.content))) out.push(`<div class="bolha eu">${esc(b.content)}</div>`);
+        if (m.role === 'user' && b.type === 'image' && b.source) out.push(`<div class="bolha eu"><img src="data:${b.source.media_type};base64,${b.source.data}" style="max-width:220px;border-radius:8px"></div>`);
+        if (m.role === 'user' && b.type === 'tool_result') {
+          let r = null; try { r = JSON.parse(b.content); } catch (_) { /* texto */ }
+          if (r && r.respostas) out.push(`<div class="bolha eu">${Object.entries(r.respostas).filter(([, v]) => v !== '' && v !== null).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <strong>${esc(v)}</strong>`).join('<br>')}${r.observacao ? '<br>' + esc(r.observacao) : ''}</div>`);
+          else if (!r && b.content && !/^A artesã respondeu/.test(b.content)) out.push(`<div class="bolha eu">${esc(b.content)}</div>`);
+        }
         if (m.role === 'assistant' && b.type === 'text' && b.text.trim()) out.push(`<div class="bolha ela">${formatar(b.text)}</div>`);
-        if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'perguntar') out.push(`<div class="bolha ela"><strong>${esc(b.input.pergunta)}</strong></div>`);
+        if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'pedir_informacoes') out.push(htmlFormulario(b, conv.pendentes && conv.pendentes.formulario.id === b.id && !conv.ocupado));
         if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'calcular') out.push('<div class="bolha sistema">Calculando com a calculadora do sistema...</div>');
-        if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'montar_projeto') out.push(`<div class="bolha sistema">Projeto <strong>${esc(b.input.nome || '')}</strong> pronto. <a href="#/projeto/novo/${b.input.modelo === 'catalogo' ? 'catalogo' : 'sob_medida'}" data-abrir-rascunho>Abrir no editor para revisar e salvar</a></div>`);
+        if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'conta') out.push(`<div class="bolha sistema">Conta exata: ${esc(b.input.expressao || '')}</div>`);
+        if (m.role === 'user' && b.type === 'tool_result') {
+          let r = null; try { r = JSON.parse(b.content); } catch (_) { /* */ }
+          if (r && r.projeto_id) out.push(`<div class="bolha sistema">Projeto criado. <a href="#/projeto/${esc(r.projeto_id)}"><strong>Abrir o projeto para revisar e concluir</strong></a></div>`);
+        }
       });
     });
     return out.join('');
   }
 
-  function formatar(t) {
-    return esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-  }
-
   function desenharConversa() {
     const caixa = document.getElementById('chat');
     if (!caixa) return;
-    caixa.innerHTML = (conv.mensagens.length ? bolhas() : `<div class="bolha ela">Oi! Me conte o projeto: o que é, as medidas e o material. Pode mandar foto de referência também.</div>`)
-      + (conv.ocupado ? '<div class="bolha sistema">Pensando...</div>' : '');
-    const opc = document.getElementById('opcoes');
-    opc.innerHTML = conv.pendentes && !conv.ocupado
-      ? conv.pendentes.pergunta.input.opcoes.map((o) => `<button type="button" class="botao sec peq" data-op="${esc(o)}">${esc(o)}</button>`).join('')
-      : '';
-    opc.querySelectorAll('[data-op]').forEach((b) => b.addEventListener('click', () => responder(b.dataset.op)));
-    caixa.querySelectorAll('[data-abrir-rascunho]').forEach((a) => a.addEventListener('click', () => {
-      // reaplica o último projeto montado
-      const ult = [...conv.mensagens].reverse().flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => b.type === 'tool_use' && b.name === 'montar_projeto');
-      if (ult) rodarMontar(ult.input);
-    }));
+    caixa.innerHTML = (conv.mensagens.length ? bolhas() : `<div class="bolha ela">Oi, eu sou a <strong>Nath</strong>! Me conte a peça que você quer criar, do seu jeito: o que é, para quem, tamanho, material. Pode mandar foto também.<br><br>Se for uma dúvida de técnica, conta, preço ou venda, pode perguntar.</div>`)
+      + (conv.ocupado ? '<div class="bolha sistema">A Nath está pensando...</div>' : '');
+    caixa.querySelectorAll('form[data-form]').forEach((form) => {
+      form.querySelectorAll('select').forEach((s) => s.addEventListener('change', () => { const o = form.querySelector(`[data-outro="${s.name}"]`); if (o) o.style.display = s.value === '__outro' ? 'block' : 'none'; }));
+      form.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        if (conv.ocupado) return;
+        const respostas = {};
+        const campos = (conv.pendentes && conv.pendentes.formulario.input.campos) || [];
+        campos.forEach((k) => {
+          const el = form.querySelector(`[name="${k.id}"]`);
+          if (!el) return;
+          let v = el.value;
+          if (v === '__outro') v = (form.querySelector(`[data-outro="${k.id}"]`) || {}).value || '';
+          respostas[k.id] = v;
+        });
+        responder('', [], respostas);
+      });
+    });
     caixa.scrollTop = caixa.scrollHeight;
     const u = document.getElementById('uso-ia');
     if (u && conv.uso) u.textContent = `${conv.uso.mensagens} de ${conv.uso.limite} mensagens neste mês`;
@@ -205,16 +267,14 @@
         .bolha.ela{background:var(--creme-2);align-self:flex-start;border-bottom-left-radius:4px}
         .bolha.eu{background:var(--terracota);color:var(--creme);align-self:flex-end;border-bottom-right-radius:4px}
         .bolha.sistema{align-self:center;font-size:13px;color:var(--texto-2);background:none;padding:2px}
-        #opcoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
         .entrada-chat{display:flex;gap:8px;margin-top:10px;align-items:flex-end}
         .entrada-chat textarea{flex:1;border:1px solid #cfc4b2;border-radius:10px;padding:10px 12px;min-height:48px;max-height:160px;resize:vertical;font:inherit}
       </style>
-      <div class="cabecalho"><div><h1>Assistente</h1><p>Monte o projeto conversando. Os números saem sempre da calculadora do sistema.</p></div>
+      <div class="cabecalho"><div><h1>Nath</h1><p>Sua assistente: monta o projeto com você e tira dúvidas do ofício. Os números saem sempre da calculadora.</p></div>
         <div class="acoes" style="margin:0;align-items:center"><span id="uso-ia" style="font-size:13px;color:var(--texto-2)"></span><button type="button" class="botao sec peq" id="bt-nova-conv">Nova conversa</button></div></div>
       <div class="chat-grade">
         <div>
           <div id="chat" aria-live="polite"></div>
-          <div id="opcoes"></div>
           <div id="anexos" class="miniaturas"></div>
           <div class="entrada-chat">
             <input type="file" id="arq-chat" accept="image/*" multiple class="sr-only"><label for="arq-chat" class="botao sec" title="Anexar foto">Foto</label>
@@ -238,19 +298,25 @@
       ev.target.value = '';
       document.getElementById('anexos').innerHTML = anexos.map((a) => `<div class="foto"><img src="data:image/jpeg;base64,${a.source.data}"></div>`).join('');
     });
-    document.getElementById('bt-nova-conv').addEventListener('click', () => { Object.assign(conv, { id: null, mensagens: [], pendentes: null }); desenharConversa(); });
+    document.getElementById('bt-nova-conv').addEventListener('click', () => { Object.assign(conv, { id: null, mensagens: [], pendentes: null, ultimoProjeto: null }); desenharConversa(); });
     area().querySelectorAll('[data-conv]').forEach((a) => a.addEventListener('click', async (ev) => {
       ev.preventDefault();
       const { data } = await sb.from('ia_conversas').select('*').eq('id', a.dataset.conv).single();
       if (!data) return;
       Object.assign(conv, { id: data.id, mensagens: data.mensagens || [], pendentes: null });
-      // se terminou numa pergunta, reabre as opções
       const ult = conv.mensagens[conv.mensagens.length - 1];
-      const perg = ult && ult.role === 'assistant' && (ult.content || []).find((b) => b.type === 'tool_use' && b.name === 'perguntar');
-      if (perg) conv.pendentes = { resultados: (ult.content || []).filter((b) => b.type === 'tool_use' && b.name !== 'perguntar').map((u) => ({ type: 'tool_result', tool_use_id: u.id, content: u.name === 'calcular' ? JSON.stringify(rodarCalcular(u.input)) : JSON.stringify({ ok: true }) })), pergunta: perg };
+      const form = ult && ult.role === 'assistant' && Array.isArray(ult.content) && ult.content.find((b) => b.type === 'tool_use' && b.name === 'pedir_informacoes');
+      if (form) {
+        const resultados = [];
+        for (const u of ult.content.filter((b) => b.type === 'tool_use' && b.name !== 'pedir_informacoes')) resultados.push({ type: 'tool_result', tool_use_id: u.id, content: u.name === 'criar_projeto' ? JSON.stringify({ ok: true }) : await rodarFerramenta(u) });
+        conv.pendentes = { resultados, formulario: form };
+      }
       desenharConversa();
     }));
     desenharConversa();
     txt.focus();
   };
+
+  // Exposto para testes
+  App._nath = { rodarConta, rodarCalcular };
 })();

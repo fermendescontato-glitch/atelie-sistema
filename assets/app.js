@@ -34,6 +34,7 @@
   const UNIDADES_COMPRA = { metro: 'metro', rolo: 'rolo', kg: 'kg', unidade: 'unidade', pacote: 'pacote' };
   const UNIDADES_CONSUMO = { metro: 'metro', grama: 'grama', unidade: 'unidade' };
   const TIPOS_TRAMA = { geral: 'Trama de peça', vao_zigzag: 'Vão · zigzag', vao_quadrado: 'Vão · quadrado' };
+  const FAMILIAS = { vao: 'Guarda-corpo e telas (vão com ganchos)', bolsa: 'Bolsa', colar_mesa: 'Colar de mesa', colar: 'Colar de pescoço', luminaria: 'Luminária', painel: 'Painel', hang_plant: 'Hang plant', pingente_parede: 'Pingente de parede', livre: 'Partes livres' };
   const MODELOS = { sob_medida: 'Sob medida', catalogo: 'Catálogo', ambos: 'Ambos' };
   const TIPOS_CLIENTE = { cliente_final: 'Cliente final', arquiteto: 'Arquiteto(a)', loja: 'Loja' };
 
@@ -97,8 +98,9 @@
     if (primeiro) primeiro.focus();
   }
 
-  const campo = (rotulo, html, ajuda = '') => `
-    <div class="campo"><label>${esc(rotulo)}</label>${html}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</div>`;
+  const dica = (info) => (info ? ` <span class="info" tabindex="0" role="note" aria-label="${esc(info)}" data-dica="${esc(info)}">i</span>` : '');
+  const campo = (rotulo, html, ajuda = '', info = '') => `
+    <div class="campo"><label>${esc(rotulo)}${dica(info)}</label>${html}${ajuda ? `<span class="ajuda">${ajuda}</span>` : ''}</div>`;
   const entrada = (nome, valor = '', extra = '') => `<input name="${nome}" value="${esc(valor)}" ${extra}>`;
   const numeroCom = (nome, valor, sufixo, extra = '') => `
     <div class="com-sufixo"><input type="number" step="any" name="${nome}" value="${valor ?? ''}" ${extra}><span>${esc(sufixo)}</span></div>`;
@@ -161,9 +163,11 @@
      --------------------------------------------------------------- */
   const MENU = [
     { rota: 'inicio', rotulo: 'Início' },
-    { rota: 'assistente', rotulo: 'Assistente' },
+    { rota: 'assistente', rotulo: 'Nath · assistente' },
     { rota: 'projetos', rotulo: 'Projetos', tambem: ['projeto'] },
     { rota: 'propostas', rotulo: 'Propostas', tambem: ['proposta'] },
+    { rota: 'vendas', rotulo: 'Vendas', tambem: ['venda'] },
+    { rota: 'financeiro', rotulo: 'Financeiro' },
     { rota: 'clientes', rotulo: 'Clientes' },
     { rota: 'biblioteca', rotulo: 'Biblioteca' },
     { rota: 'configuracoes', rotulo: 'Configurações' }
@@ -200,13 +204,19 @@
      --------------------------------------------------------------- */
   async function paginaInicio() {
     const p = estado.perfil || {};
-    const [mat, tr, cli] = await Promise.all([
+    const hoje = new Date();
+    const mesIni = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+    const [mat, pj, rec] = await Promise.all([
       sb.from('materiais').select('id, estoque_atual, estoque_minimo').eq('ativo', true),
-      sb.from('tramas').select('id', { count: 'exact', head: true }).eq('ativo', true),
-      sb.from('clientes').select('id', { count: 'exact', head: true }).eq('ativo', true)
+      sb.from('projetos').select('id, status'),
+      sb.from('recebimentos').select('valor, valor_liquido, status, recebido_em')
     ]);
     const materiais = mat.data || [];
+    const projetos = pj.data || [];
+    const recs = rec.data || [];
     const acabando = materiais.filter((m) => Number(m.estoque_minimo) > 0 && Number(m.estoque_atual) <= Number(m.estoque_minimo)).length;
+    const aReceber = recs.filter((r) => r.status === 'pendente').reduce((s, r) => s + Number(r.valor || 0), 0);
+    const recebidoMes = recs.filter((r) => r.status === 'recebido' && r.recebido_em >= mesIni).reduce((s, r) => s + Number(r.valor_liquido ?? r.valor ?? 0), 0);
     const pendencias = [];
     if (!Number(p.valor_hora)) pendencias.push('o valor da sua hora de trabalho');
     if (!p.logo_url) pendencias.push('o logo da sua marca');
@@ -216,14 +226,15 @@
       <div class="cabecalho"><div><h1>Olá${p.nome ? ', ' + esc(p.nome.split(' ')[0]) : ''}!</h1><p>O que vamos criar hoje?</p></div></div>
       ${pendencias.length ? `<div class="aviso" style="margin-bottom:20px">Para o sistema calcular e precificar certinho, complete ${pendencias.map(esc).join(', ')}. <a href="#/${!materiais.length && Number(p.valor_hora) && p.logo_url ? 'biblioteca' : 'configuracoes'}">Completar agora</a></div>` : ''}
       <div class="atalhos">
-        <a class="atalho" href="#/projeto/novo/sob_medida"><strong>Novo projeto sob medida</strong><span>Guarda-corpo, painel, cortina...</span></a>
-        <a class="atalho" href="#/projeto/novo/catalogo"><strong>Nova peça de catálogo</strong><span>Hang plant, bolsa, colar...</span></a>
-        <button class="atalho oliva" disabled><strong>Nova venda</strong><span>Registrar um pedido. Em breve.</span></button>
+        <a class="atalho" href="#/projeto/novo"><strong>Novo projeto</strong><span>Guarda-corpo, bolsa, colar, painel, hang plant...</span></a>
+        <a class="atalho" href="#/assistente"><strong>Falar com a Nath</strong><span>Conte sua ideia e ela monta o projeto com você.</span></a>
+        <a class="atalho oliva" href="#/venda/nova"><strong>Nova venda</strong><span>Registrar uma venda e o pagamento.</span></a>
       </div>
       <div class="indicadores">
-        <div class="indicador"><div class="rot">Materiais</div><div class="val">${materiais.length}</div></div>
-        <div class="indicador"><div class="rot">Tramas disponíveis</div><div class="val">${tr.count ?? 0}</div></div>
-        <div class="indicador"><div class="rot">Clientes</div><div class="val">${cli.count ?? 0}</div></div>
+        <div class="indicador"><div class="rot">Projetos em criação</div><div class="val">${projetos.filter((x) => x.status === 'em_criacao').length}</div></div>
+        <div class="indicador"><div class="rot">Em proposta</div><div class="val">${projetos.filter((x) => x.status === 'em_proposta').length}</div></div>
+        <div class="indicador"><div class="rot">Recebido no mês</div><div class="val" style="font-size:20px">${moeda(recebidoMes)}</div></div>
+        <div class="indicador"><div class="rot">A receber</div><div class="val" style="font-size:20px">${moeda(aReceber)}</div></div>
         <div class="indicador"><div class="rot">Insumos acabando</div><div class="val">${acabando}</div></div>
       </div>`;
   }
@@ -245,10 +256,17 @@
   async function paginaConfiguracoes() {
     const p = estado.perfil;
     if (!p) { area().innerHTML = '<div class="erro-msg">Seu perfil não foi encontrado. Fale com o administrador.</div>'; return; }
-    const { data: fotos } = await sb.from('portfolio').select('*').eq('artesa_id', p.id).eq('ativo', true).order('ordem');
+    const [{ data: fotos }, { data: fixas }] = await Promise.all([
+      sb.from('portfolio').select('*').eq('artesa_id', p.id).eq('ativo', true).order('ordem'),
+      sb.from('despesas_fixas').select('valor').eq('ativo', true)
+    ]);
+    const somaFixas = (fixas || []).reduce((s, f) => s + Number(f.valor || 0), 0);
+    const taxas = Object.assign({ pix: 0, dinheiro: 0, debito: 0, credito: [0] }, p.taxas_pagamento || {});
+    if (!Array.isArray(taxas.credito) || !taxas.credito.length) taxas.credito = [0];
+    const linhaCredito = (i, v) => `<div class="campo"><label>Crédito ${i + 1}x</label><div class="com-sufixo"><input type="number" step="any" min="0" data-credito="${i}" value="${v ?? 0}"><span>%</span></div></div>`;
 
     area().innerHTML = `
-      <div class="cabecalho"><div><h1>Configurações</h1><p>Seus dados, valores e padrões. Eles alimentam os cálculos e as propostas.</p></div></div>
+      <div class="cabecalho"><div><h1>Configurações</h1><p>Seus dados, valores e padrões. Eles alimentam os cálculos, as propostas e o financeiro.</p></div></div>
       <form id="form-config" novalidate>
         <section class="card">
           <h2>Sua marca</h2><p class="sub">Aparece nas propostas enviadas aos clientes.</p>
@@ -258,7 +276,7 @@
             ${campo('Telefone', entrada('telefone', p.telefone))}
             ${campo('Instagram', entrada('instagram', p.instagram, 'placeholder="@suamarca"'))}
           </div>
-          <div style="margin-top:16px">${campo('Texto de apresentação', `<textarea name="texto_apresentacao" rows="5">${esc(p.texto_apresentacao)}</textarea>`, 'Usado na página "quem sou eu" da proposta.')}</div>
+          <div style="margin-top:16px">${campo('Texto de apresentação', `<textarea name="texto_apresentacao" rows="5">${esc(p.texto_apresentacao)}</textarea>`, '', 'Aparece na página de apresentação da proposta. Conte quem você é, há quanto tempo trabalha e o que torna suas peças especiais.')}</div>
           <div class="grade g2" style="margin-top:16px;align-items:start">
             <div class="campo"><label>Logo</label>
               <div style="display:flex;gap:14px;align-items:center">
@@ -284,22 +302,53 @@
         </section>
 
         <section class="card">
-          <h2>Valores</h2><p class="sub">Base da precificação. Você pode ajustar em cada peça.</p>
+          <h2>Quanto vale a sua hora</h2><p class="sub">O valor da hora entra como custo de mão de obra no preço de cada projeto.</p>
           <div class="grade g4">
-            ${campo('Valor da sua hora', numeroCom('valor_hora', p.valor_hora, 'R$/hora', 'min="0"'))}
-            ${campo('Margem desejada', numeroCom('margem_padrao_pct', p.margem_padrao_pct, '%', 'min="0" max="95"'))}
-            ${campo('Taxa da maquininha', numeroCom('taxa_maquininha_pct', p.taxa_maquininha_pct, '%', 'min="0" max="50"'), 'Média que você paga.')}
-            ${campo('Imposto', numeroCom('imposto_pct', p.imposto_pct, '%', 'min="0" max="50"'), 'Deixe 0 se não emite nota.')}
+            ${campo('Custos fixos do mês', numeroCom('custos_fixos_mes', p.custos_fixos_mes, 'R$', 'min="0"'), somaFixas ? `<a href="#" id="usar-fixas">Usar as despesas fixas: ${moeda(somaFixas)}</a>` : '', 'Energia, internet, aluguel, celular, assinaturas: tudo o que você paga todo mês para o ateliê funcionar.')}
+            ${campo('Quanto quer tirar por mês', numeroCom('prolabore_desejado', p.prolabore_desejado, 'R$', 'min="0"'), '', 'Seu salário (pró-labore): o que você quer levar para casa por mês.')}
+            ${campo('Horas de trabalho no mês', numeroCom('horas_mes', p.horas_mes, 'h', 'min="0"'), '', 'Só as horas produzindo peças. Ex.: 6 h por dia × 20 dias = 120 h.')}
+            <div class="calculo" id="calc-hora" style="align-self:end"></div>
+          </div>
+          <div class="grade g4" style="margin-top:16px">
+            ${campo('Valor da sua hora', numeroCom('valor_hora', p.valor_hora, 'R$/hora', 'min="0"'), '', 'Usado no preço de cada projeto: horas de trabalho × valor da hora.')}
+            ${campo('Margem desejada', numeroCom('margem_padrao_pct', p.margem_padrao_pct, '%', 'min="0" max="95"'), '', 'Lucro que você quer sobre o preço de venda, além de pagar materiais e a sua hora.')}
+            ${campo('Taxa usada no preço', numeroCom('taxa_maquininha_pct', p.taxa_maquininha_pct, '%', 'min="0" max="50"'), '', 'Taxa média que você considera ao calcular o preço. Use a do crédito que você mais recebe.')}
+            ${campo('Imposto', numeroCom('imposto_pct', p.imposto_pct, '%', 'min="0" max="50"'), '', 'Percentual de imposto sobre a venda. Deixe 0 se não emite nota.')}
           </div>
         </section>
 
         <section class="card">
-          <h2>Padrões de cálculo</h2><p class="sub">Usados pela calculadora em todos os projetos.</p>
+          <h2>Formas de pagamento</h2><p class="sub">Taxas da sua maquininha. Ao registrar um recebimento, o sistema desconta e mostra o valor líquido.</p>
           <div class="grade g4">
-            ${campo('Sobra em cada fio', numeroCom('sobra_por_fio_cm', p.sobra_por_fio_cm, 'cm', 'min="0"'), 'Somada no final de cada fio.')}
-            ${campo('Sobra por ponta', numeroCom('ponta_cm', p.ponta_cm, 'cm', 'min="0"'), 'Para dar o nó de fechamento.')}
-            ${campo('Acabamento por gancho', numeroCom('acabamento_gancho_m', p.acabamento_gancho_m, 'm', 'min="0"'), 'Para esconder o gancho.')}
-            ${campo('Arredondar na proposta', `<select name="arredondar_para">${opcoes({ 1: 'Não arredondar', 5: 'Para cima, de 5 em 5', 10: 'Para cima, de 10 em 10', 50: 'Para cima, de 50 em 50' }, String(p.arredondar_para ?? 10))}</select>`, 'Ex.: 44 ganchos viram 50.')}
+            ${campo('Pix', numeroCom('taxa_pix', taxas.pix, '%', 'min="0"'))}
+            ${campo('Dinheiro', numeroCom('taxa_dinheiro', taxas.dinheiro, '%', 'min="0"'))}
+            ${campo('Débito', numeroCom('taxa_debito', taxas.debito, '%', 'min="0"'))}
+            ${campo('Sinal na venda', numeroCom('sinal_pct', p.sinal_pct ?? 50, '%', 'min="0" max="100"'), '', 'Quanto a cliente paga no fechamento. O resto fica como saldo a receber na entrega.')}
+          </div>
+          <h3 style="margin:18px 0 8px">Crédito</h3>
+          <div class="grade g4" id="lista-credito">${taxas.credito.map((v, i) => linhaCredito(i, v)).join('')}</div>
+          <div class="acoes" style="justify-content:flex-start;margin-top:10px">
+            <button type="button" class="botao sec peq" id="mais-parcela">+ Parcela</button>
+            <button type="button" class="botao texto peq" id="menos-parcela">Remover última</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Padrões de cálculo · todas as peças</h2><p class="sub">Valem para qualquer tipo de peça. Você pode mudar em cada projeto.</p>
+          <div class="grade g4">
+            ${campo('Sobra em cada fio', numeroCom('sobra_por_fio_cm', p.sobra_por_fio_cm, 'cm', 'min="0"'), '', 'Margem de corte somada no fim de cada fio, para o arremate e para não faltar.')}
+            ${campo('Arredondar na proposta', `<select name="arredondar_para">${opcoes({ 1: 'Não arredondar', 5: 'Para cima, de 5 em 5', 10: 'Para cima, de 10 em 10', 50: 'Para cima, de 50 em 50' }, String(p.arredondar_para ?? 10))}</select>`, '', 'Na proposta, o material aparece arredondado para cima. Ex.: 44 ganchos viram 50.')}
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Padrões de cálculo · guarda-corpo e telas</h2><p class="sub">Só para quem faz vãos com ganchos. Aparecem já preenchidos no projeto de guarda-corpo.</p>
+          <div class="grade g4">
+            ${campo('Espaço mínimo entre ganchos', numeroCom('esp_min_padrao', p.esp_min_padrao ?? 9, 'cm', 'min="0"'), '', 'Menor distância aceita entre um gancho e outro.')}
+            ${campo('Espaço máximo entre ganchos', numeroCom('esp_max_padrao', p.esp_max_padrao ?? 10, 'cm', 'min="0"'), '', 'Maior distância aceita. O sistema distribui os ganchos sem passar disso.')}
+            ${campo('Margem nas pontas', numeroCom('margem_vao_cm', p.margem_vao_cm ?? 2.5, 'cm', 'min="0"'), '', 'Na trama zigzag, distância do primeiro e do último gancho até a borda.')}
+            ${campo('Sobra por ponta', numeroCom('ponta_cm', p.ponta_cm, 'cm', 'min="0"'), '', 'Corda extra em cada ponta da corda contínua, para dar o nó de fechamento.')}
+            ${campo('Acabamento por gancho', numeroCom('acabamento_gancho_m', p.acabamento_gancho_m, 'm', 'min="0"'), '', 'Pedaço de corda usado para esconder cada gancho.')}
           </div>
         </section>
 
@@ -328,15 +377,45 @@
         </div>
       </section>`;
 
-    document.getElementById('form-config').addEventListener('submit', async (ev) => {
+    const form = document.getElementById('form-config');
+    const calcHora = () => {
+      const cf = valorNum(form.custos_fixos_mes.value) || 0, pl = valorNum(form.prolabore_desejado.value) || 0, h = valorNum(form.horas_mes.value) || 0;
+      const caixa = document.getElementById('calc-hora');
+      if (!h || !(cf + pl)) { caixa.innerHTML = 'Preencha os três campos para ver quanto vale a sua hora.'; return; }
+      const v = Math.round(((cf + pl) / h) * 100) / 100;
+      caixa.innerHTML = `Sua hora vale <strong>${moeda(v)}</strong><br><a href="#" id="usar-hora">Usar este valor</a>`;
+      document.getElementById('usar-hora').addEventListener('click', (ev) => { ev.preventDefault(); form.valor_hora.value = v; toast('Valor da hora preenchido. Clique em Salvar.'); });
+    };
+    ['custos_fixos_mes', 'prolabore_desejado', 'horas_mes'].forEach((k) => form[k].addEventListener('input', calcHora));
+    calcHora();
+    const lf = document.getElementById('usar-fixas');
+    if (lf) lf.addEventListener('click', (ev) => { ev.preventDefault(); form.custos_fixos_mes.value = somaFixas; calcHora(); });
+
+    const listaCred = document.getElementById('lista-credito');
+    document.getElementById('mais-parcela').addEventListener('click', () => {
+      const n = listaCred.querySelectorAll('[data-credito]').length;
+      if (n >= 24) return;
+      listaCred.insertAdjacentHTML('beforeend', linhaCredito(n, ''));
+    });
+    document.getElementById('menos-parcela').addEventListener('click', () => {
+      const itens = listaCred.querySelectorAll('.campo');
+      if (itens.length > 1) itens[itens.length - 1].remove();
+    });
+
+    form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const d = new FormData(ev.target);
+      const d = new FormData(form);
       const textos = ['nome', 'nome_marca', 'telefone', 'instagram', 'texto_apresentacao', 'cor_primaria', 'cor_secundaria', 'cor_fundo', 'condicoes_pagamento', 'formas_pagamento'];
-      const numeros = ['valor_hora', 'margem_padrao_pct', 'taxa_maquininha_pct', 'imposto_pct', 'sobra_por_fio_cm', 'ponta_cm', 'acabamento_gancho_m', 'arredondar_para', 'validade_proposta_dias'];
+      const numeros = ['valor_hora', 'margem_padrao_pct', 'taxa_maquininha_pct', 'imposto_pct', 'sobra_por_fio_cm', 'ponta_cm', 'acabamento_gancho_m', 'arredondar_para', 'validade_proposta_dias', 'custos_fixos_mes', 'prolabore_desejado', 'horas_mes', 'sinal_pct', 'esp_min_padrao', 'esp_max_padrao', 'margem_vao_cm'];
       const dados = {};
       textos.forEach((k) => { dados[k] = (d.get(k) || '').trim() || null; });
       numeros.forEach((k) => { dados[k] = valorNum(d.get(k)) ?? 0; });
+      dados.taxas_pagamento = {
+        pix: valorNum(d.get('taxa_pix')) || 0, dinheiro: valorNum(d.get('taxa_dinheiro')) || 0, debito: valorNum(d.get('taxa_debito')) || 0,
+        credito: Array.from(listaCred.querySelectorAll('[data-credito]')).map((i) => valorNum(i.value) || 0)
+      };
       if (dados.margem_padrao_pct + dados.taxa_maquininha_pct + dados.imposto_pct >= 100) { toast('Margem + taxa + imposto precisam somar menos de 100%.', true); return; }
+      if (dados.esp_min_padrao > dados.esp_max_padrao) { toast('O espaço mínimo entre ganchos está maior que o máximo.', true); return; }
       const { data, error } = await sb.from('perfis').update(dados).eq('id', p.id).select().single();
       if (error) return erro(error);
       estado.perfil = data;
@@ -678,15 +757,15 @@
     const recarregar = () => abaCategorias(raiz).catch(erro);
     raiz.innerHTML = `
       <div class="acoes" style="margin:0 0 14px;justify-content:space-between;align-items:center">
-        <span style="color:var(--texto-2);font-size:14px">Tipos de peça que você cria. Não achou o seu? Crie uma categoria própria.</span>
+        <span style="color:var(--texto-2);font-size:14px">Tipos de peça que aparecem em Novo projeto. Não achou o seu? Crie um tipo próprio.</span>
         <button type="button" class="botao" id="nova-categoria">+ Nova categoria</button>
       </div>
       <div class="tabela-rolagem"><table class="lista">
-        <thead><tr><th>Categoria</th><th>Modelo</th><th>Origem</th><th></th></tr></thead>
+        <thead><tr><th>Tipo de peça</th><th>Perguntas usadas</th><th>Origem</th><th></th></tr></thead>
         <tbody>${lista.map((c) => `
           <tr class="${c.ativo ? '' : 'inativo'}">
             <td><strong>${esc(c.nome)}</strong></td>
-            <td>${esc(MODELOS[c.modelo] || c.modelo)}</td>
+            <td>${esc(FAMILIAS[c.familia] || 'Partes livres')}</td>
             <td>${seloOrigem(c)}</td>
             <td style="white-space:nowrap">${ehMeu(c) || ehAdmin() ? `<button type="button" class="botao texto peq" data-editar="${c.id}">Editar</button>${botaoAtivo('categorias', c)}` : ''}</td>
           </tr>`).join('')}</tbody></table></div>`;
@@ -694,10 +773,10 @@
       titulo: c && c.id ? 'Editar categoria' : 'Nova categoria',
       corpo: `<div class="grade g2">
         ${campo('Nome', entrada('nome', c && c.nome, 'required'))}
-        ${campo('Usada em', `<select name="modelo">${opcoes(MODELOS, (c && c.modelo) || 'ambos')}</select>`)}
+        ${campo('Perguntas do projeto', `<select name="familia">${opcoes(FAMILIAS, (c && c.familia) || 'livre')}</select>`, '', 'Qual roteiro de perguntas o projeto deste tipo de peça vai usar. Se nenhum servir, escolha Partes livres.')}
       </div>`,
       aoSalvar: async (d) => {
-        const dados = { nome: d.get('nome').trim(), modelo: d.get('modelo') };
+        const dados = { nome: d.get('nome').trim(), familia: d.get('familia') };
         if (!dados.nome) throw new Error('Informe o nome.');
         const r = c && c.id ? await sb.from('categorias').update(dados).eq('id', c.id) : await sb.from('categorias').insert({ ...dados, ordem: 100 });
         if (r.error) throw r.error;
@@ -713,72 +792,109 @@
   /* ---------------------------------------------------------------
      Clientes
      --------------------------------------------------------------- */
+  const ORIGENS = { '': 'Não sei', instagram: 'Instagram', indicacao: 'Indicação', feira: 'Feira ou evento', site: 'Site', whatsapp: 'WhatsApp', loja: 'Loja parceira', outro: 'Outro' };
+
   async function paginaClientes() {
     const { data, error } = await (estado.mostrarInativos ? sb.from('clientes').select('*') : sb.from('clientes').select('*').eq('ativo', true)).order('nome');
     if (error) throw error;
     const todos = data || [];
-    const arquitetos = todos.filter((c) => c.tipo === 'arquiteto' && c.ativo);
     const recarregar = () => paginaClientes().catch(erro);
     const desenhar = () => {
       const b = estado.buscaClientes.toLowerCase();
-      const lista = todos.filter((c) => !b || [c.nome, c.telefone, c.cidade, c.email].join(' ').toLowerCase().includes(b));
+      const lista = todos.filter((c) => !b || [c.nome, c.telefone, c.cidade, c.email, c.instagram].join(' ').toLowerCase().includes(b));
       document.getElementById('lista-clientes').innerHTML = lista.length ? `<div class="tabela-rolagem"><table class="lista">
-        <thead><tr><th>Nome</th><th>Tipo</th><th>Telefone</th><th>Cidade</th><th>Arquiteto(a)</th><th></th></tr></thead>
+        <thead><tr><th>Nome</th><th>Celular</th><th>Cidade</th><th>Instagram</th><th>Como conheceu</th><th>Novidades</th><th></th></tr></thead>
         <tbody>${lista.map((c) => `
           <tr class="${c.ativo ? '' : 'inativo'}">
             <td><strong>${esc(c.nome)}</strong>${c.email ? `<br><span style="font-size:13px;color:var(--texto-2)">${esc(c.email)}</span>` : ''}</td>
-            <td>${esc(TIPOS_CLIENTE[c.tipo] || c.tipo)}</td>
             <td>${esc(c.telefone || '-')}</td>
-            <td>${esc(c.cidade || '-')}</td>
-            <td>${esc((todos.find((a) => a.id === c.arquiteto_id) || {}).nome || '-')}</td>
+            <td>${esc([c.cidade, c.uf].filter(Boolean).join('/') || '-')}</td>
+            <td>${esc(c.instagram || '-')}</td>
+            <td>${esc(ORIGENS[c.origem || ''] || c.origem || '-')}${c.indicado_por_id ? `<br><span style="font-size:12px;color:var(--texto-2)">por ${esc((todos.find((a) => a.id === c.indicado_por_id) || {}).nome || '')}</span>` : ''}</td>
+            <td>${c.aceita_novidades ? '<span class="selo status-aprovado">Aceita</span>' : '-'}</td>
             <td style="white-space:nowrap"><button type="button" class="botao texto peq" data-editar="${c.id}">Editar</button>${botaoAtivo('clientes', c)}</td>
           </tr>`).join('')}</tbody></table></div>`
         : `<div class="vazio">${todos.length ? 'Nenhum cliente encontrado nessa busca.' : 'Nenhum cliente ainda.'}</div>`;
-      document.querySelectorAll('#lista-clientes [data-editar]').forEach((bt) => bt.addEventListener('click', () => formCliente(todos.find((x) => x.id === bt.dataset.editar), arquitetos, recarregar)));
+      document.querySelectorAll('#lista-clientes [data-editar]').forEach((bt) => bt.addEventListener('click', () => formCliente(todos.find((x) => x.id === bt.dataset.editar), recarregar)));
       ligarAlternar(document.getElementById('lista-clientes'), recarregar);
     };
     area().innerHTML = `
       <div class="cabecalho">
-        <div><h1>Clientes</h1><p>Clientes finais, arquitetos parceiros e lojas.</p></div>
+        <div><h1>Clientes</h1><p>Contatos de quem compra de você. Úteis para entregar, cobrar e fazer marketing depois.</p></div>
         <button type="button" class="botao" id="novo-cliente">+ Novo cliente</button>
       </div>
       <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-        <div class="campo" style="flex:1;min-width:220px"><label class="sr-only" for="busca">Buscar</label><input id="busca" placeholder="Buscar por nome, telefone ou cidade" value="${esc(estado.buscaClientes)}"></div>
+        <div class="campo" style="flex:1;min-width:220px"><label class="sr-only" for="busca">Buscar</label><input id="busca" placeholder="Buscar por nome, celular, cidade ou Instagram" value="${esc(estado.buscaClientes)}"></div>
         <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--texto-2)"><input type="checkbox" id="ver-inativos" ${estado.mostrarInativos ? 'checked' : ''}> Mostrar desativados</label>
       </div>
       <div id="lista-clientes"></div>`;
-    document.getElementById('novo-cliente').addEventListener('click', () => formCliente(null, arquitetos, recarregar));
+    document.getElementById('novo-cliente').addEventListener('click', () => formCliente(null, recarregar));
     document.getElementById('busca').addEventListener('input', (ev) => { estado.buscaClientes = ev.target.value; desenhar(); });
     document.getElementById('ver-inativos').addEventListener('change', (ev) => { estado.mostrarInativos = ev.target.checked; recarregar(); });
     desenhar();
   }
 
-  function formCliente(c, arquitetos, recarregar) {
-    c = c || { tipo: 'cliente_final' };
+  // aoSalvar(clienteSalvo) é chamado depois de gravar
+  async function formCliente(c, aoSalvar) {
+    c = c || { aceita_novidades: false };
+    const { data: outros } = await sb.from('clientes').select('id, nome').eq('ativo', true).order('nome');
     abrirModal({
       titulo: c.id ? 'Editar cliente' : 'Novo cliente',
       corpo: `
         <div class="grade g2">
           ${campo('Nome', entrada('nome', c.nome, 'required'))}
-          ${campo('Tipo', `<select name="tipo">${opcoes(TIPOS_CLIENTE, c.tipo)}</select>`)}
-          ${campo('Telefone', entrada('telefone', c.telefone, 'type="tel"'))}
+          ${campo('Celular / WhatsApp', entrada('telefone', c.telefone, 'type="tel" placeholder="(11) 99999-9999"'))}
           ${campo('E-mail', entrada('email', c.email, 'type="email"'))}
-          ${campo('Cidade', entrada('cidade', c.cidade))}
-          ${campo('Arquiteto(a) do projeto', `<select name="arquiteto_id"><option value="">Nenhum</option>${opcoesLista(arquitetos.filter((a) => a.id !== c.id), c.arquiteto_id)}</select>`)}
+          ${campo('Instagram', entrada('instagram', c.instagram, 'placeholder="@cliente"'))}
+          ${campo('Aniversário', entrada('aniversario', c.aniversario, 'type="date"'), '', 'Para mandar uma mensagem ou um cupom no aniversário.')}
+          ${campo('Como conheceu você', `<select name="origem">${opcoes(ORIGENS, c.origem || '')}</select>`, '', 'Mostra quais canais trazem mais clientes.')}
+          ${campo('Indicado por', `<select name="indicado_por_id"><option value="">Ninguém</option>${opcoesLista((outros || []).filter((o) => o.id !== c.id), c.indicado_por_id)}</select>`, '', 'Quem indicou: arquiteto, loja ou outro cliente.')}
         </div>
+        <h3 style="margin:20px 0 10px">Endereço</h3>
+        <div class="grade g3">
+          ${campo('CEP', entrada('cep', c.cep, 'inputmode="numeric" placeholder="00000-000"'), '<span id="cep-status"></span>', 'Digite o CEP e o resto do endereço é preenchido sozinho.')}
+          ${campo('Rua', entrada('logradouro', c.logradouro))}
+          ${campo('Número', entrada('numero', c.numero))}
+          ${campo('Complemento', entrada('complemento', c.complemento))}
+          ${campo('Bairro', entrada('bairro', c.bairro))}
+          ${campo('Cidade', entrada('cidade', c.cidade))}
+          ${campo('UF', entrada('uf', c.uf, 'maxlength="2"'))}
+        </div>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:16px"><input type="checkbox" name="aceita_novidades" ${c.aceita_novidades ? 'checked' : ''} style="margin-top:4px"> <span>A cliente <strong>aceita receber novidades</strong> e promoções. <span class="ajuda" style="display:block;font-size:12px;color:var(--texto-2)">Pela LGPD, só mande marketing para quem autorizou.</span></span></label>
         <div style="margin-top:14px">${campo('Observações', `<textarea name="observacoes" rows="3">${esc(c.observacoes)}</textarea>`)}</div>`,
+      aoAbrir: (form) => {
+        form.cep.addEventListener('input', async () => {
+          const cep = form.cep.value.replace(/\D/g, '');
+          const st = document.getElementById('cep-status');
+          if (cep.length !== 8) { st.textContent = ''; return; }
+          st.textContent = 'Buscando...';
+          try {
+            const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const j = await r.json();
+            if (j.erro) { st.textContent = 'CEP não encontrado.'; return; }
+            form.logradouro.value = j.logradouro || form.logradouro.value;
+            form.bairro.value = j.bairro || form.bairro.value;
+            form.cidade.value = j.localidade || form.cidade.value;
+            form.uf.value = j.uf || form.uf.value;
+            st.textContent = 'Endereço preenchido.';
+            form.numero.focus();
+          } catch (_) { st.textContent = 'Não consegui buscar. Preencha à mão.'; }
+        });
+      },
       aoSalvar: async (d) => {
+        const t = (k) => (d.get(k) || '').trim() || null;
         const dados = {
-          nome: d.get('nome').trim(), tipo: d.get('tipo'),
-          telefone: d.get('telefone').trim() || null, email: d.get('email').trim() || null,
-          cidade: d.get('cidade').trim() || null, arquiteto_id: d.get('arquiteto_id') || null,
-          observacoes: d.get('observacoes').trim() || null
+          nome: t('nome'), telefone: t('telefone'), email: t('email'), instagram: t('instagram'),
+          aniversario: t('aniversario'), origem: t('origem'), indicado_por_id: t('indicado_por_id'),
+          cep: t('cep'), logradouro: t('logradouro'), numero: t('numero'), complemento: t('complemento'),
+          bairro: t('bairro'), cidade: t('cidade'), uf: (t('uf') || '').toUpperCase() || null,
+          aceita_novidades: d.get('aceita_novidades') === 'on', observacoes: t('observacoes')
         };
         if (!dados.nome) throw new Error('Informe o nome do cliente.');
-        const r = c.id ? await sb.from('clientes').update(dados).eq('id', c.id) : await sb.from('clientes').insert(dados);
+        const r = c.id ? await sb.from('clientes').update(dados).eq('id', c.id).select().single() : await sb.from('clientes').insert(dados).select().single();
         if (r.error) throw r.error;
         toast('Cliente salvo.');
-        recarregar();
+        if (aoSalvar) aoSalvar(r.data);
       }
     });
   }
@@ -786,7 +902,7 @@
   /* ---------------------------------------------------------------
      Compartilhado com os outros módulos (projetos, propostas, assistente)
      --------------------------------------------------------------- */
-  Object.assign(App, { sb, estado, cfg, esc, moeda, numero, valorNum, toast, erro, traduzErro, abrirModal, campo, entrada, numeroCom, opcoes, opcoesLista, area, ehAdmin, ehMeu, nomeTipo, telaShell, formCliente, TIPOS_TRAMA, MODELOS });
+  Object.assign(App, { sb, estado, cfg, esc, moeda, numero, valorNum, toast, erro, traduzErro, abrirModal, campo, dica, entrada, numeroCom, opcoes, opcoesLista, area, ehAdmin, ehMeu, nomeTipo, telaShell, formCliente, TIPOS_TRAMA, MODELOS, FAMILIAS });
 
   /* ---------------------------------------------------------------
      Inicialização
