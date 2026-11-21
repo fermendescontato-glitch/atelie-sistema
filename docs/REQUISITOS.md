@@ -224,6 +224,7 @@ Valor informado pela artesã por projeto. O sistema pode sugerir com base em dis
 9. Energia, internet e outros custos fixos (versão futura).
 10. Versão para celular (versão futura).
 11. Sugestão automática de deslocamento (versão futura).
+12. **Melhorar a proposta (anotado em 16/11, após o teste da v0.2):** os ganchos não aparecem e faltam informações. O Fernando vai detalhar o que precisa entrar.
 
 ---
 
@@ -238,3 +239,58 @@ prejuízo      = preço final × (1 − taxa − imposto) < custo total
 ```
 
 Assim a taxa e o imposto são calculados sobre o preço de venda, e não sobre o custo.
+
+---
+
+## 8. Decisões de 21/11/2026 (revisão depois do teste da v0.2)
+
+### 8.1 Assistente "Nath"
+- Nome da assistente: **Nath**, para todas as artesãs que usam o sistema.
+- Função principal: **entender o projeto que está na cabeça da pessoa**, fazendo as perguntas certas, e criar o projeto no sistema.
+- Também é aberta para dúvidas do ofício: técnica, materiais, contas, preço, venda e gestão do ateliê. Fora do segmento, recusa com educação.
+- **Pede tudo de uma vez, por um formulário dentro do chat** (economia de tokens). Nada de uma pergunta por vez.
+- Não faz conta de cabeça: projeto usa a calculadora; outras contas usam uma ferramenta de conta exata.
+- Com as informações e o cálculo, **cria o projeto sozinha**, já na aba Projetos com o status "Em criação", para a pessoa revisar e concluir.
+
+### 8.2 Novo projeto em etapas
+① Tipo de peça → ② Dados → ③ A peça (perguntas do tipo) → ④ Resultado → ⑤ Preço → Concluir.
+- Botões Próximo e Voltar. Cada campo tem um ⓘ com explicação e exemplo ao passar o mouse.
+- Status só depois de concluir: Em criação → Pronto → Em proposta → Aprovado → Em produção → Entregue.
+
+### 8.3 Para quem é a peça
+- Opção **"Portfólio / estoque próprio"** além dos clientes cadastrados.
+- Cadastro de cliente focado em marketing: nome, celular/WhatsApp, e-mail, endereço completo (CEP), aniversário, Instagram, como conheceu, aceite para receber novidades (LGPD), observações.
+- "Arquiteto" deixa de ser campo próprio e vira **"Indicado por"** (qualquer pessoa).
+
+### 8.4 Preço e Configurações
+- Taxa da maquininha, imposto, hora e margem vêm das Configurações. No projeto ficam recolhidos em "Ajustar só neste projeto".
+- Configurações em blocos: **para todas as peças** (sobra de corte, arredondamento) e **por tipo de peça** (ex.: guarda-corpo: ponta, acabamento por gancho, espaçamento). Os padrões aparecem pré-preenchidos na etapa ③.
+
+### 8.5 Partes da peça por família
+Toda peça = fios cortados + nós + acessórios. O que muda são as perguntas de cada família, guardadas em tabela (editável no Supabase), com o texto do ⓘ.
+
+Famílias da primeira versão:
+1. Guarda-corpo (vão com ganchos)
+2. Bolsa
+3. Colar de mesa
+4. Colar de pescoço
+5. Luminária (abajur e pendente)
+6. Painel
+7. Hang plant
+8. Pingente de parede
+
+Perguntas comuns: tamanho final, como os fios começam (dobrados ao meio ou pela ponta), quantos fios, trama ou nó principal (consumo), franja, acabamento, acessórios.
+
+**Pendente:** a Nathalia vai montar uma peça de cada família com o Claude para validar a forma de calcular de cada uma.
+
+### 8.6 Financeiro e vendas (entra na v0.3)
+- **Vendas simples** junto com o financeiro (pedidos e produção completos continuam para depois).
+  - Proposta aceita gera a venda sozinha, com as parcelas (sinal e saldo, % configurável).
+  - Venda avulsa: cliente ou consumidor final, peças, valor, forma de pagamento.
+- **Visão de caixa:** conta quando o dinheiro entra ou sai de verdade.
+- **Taxas por forma de pagamento** nas Configurações: Pix, dinheiro, débito e crédito em 1x, 2x, 3x... A artesã define até quantas parcelas aceita e a taxa de cada uma. Ao receber, o sistema desconta a taxa e mostra o valor líquido.
+- **Despesas** por categoria (material, ferramentas, embalagem, frete, deslocamento, marketing, impostos/DAS, custos fixos, outros). Despesas fixas mensais se repetem sozinhas. Compra de material pode somar no estoque.
+- **Pró-labore:** lançamento próprio de retirada pessoal, separado das despesas do ateliê.
+- **Painel do mês:** faturamento, recebido (líquido), a receber, despesas por categoria, resultado e faturamento do ano (teto do MEI).
+- **"Quanto vale minha hora":** custos fixos + pró-labore desejado ÷ horas trabalhadas no mês. O resultado vira o valor da hora nas Configurações e, com isso, entra como custo de mão de obra no preço de cada projeto.
+- Fora por enquanto: exportar para contador e meta do mês.

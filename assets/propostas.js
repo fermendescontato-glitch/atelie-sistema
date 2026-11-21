@@ -21,35 +21,65 @@
   /* ---------------- Texto automático de cada item ---------------- */
   async function textosDoProjeto(projetoId, ctx) {
     const [pj, cp, pr] = await Promise.all([
-      sb.from('projetos').select('*, categorias(nome)').eq('id', projetoId).single(),
+      sb.from('projetos').select('*, categorias(nome), clientes(cidade)').eq('id', projetoId).single(),
       sb.from('projeto_componentes').select('*').eq('projeto_id', projetoId).order('ordem'),
       sb.from('precificacoes').select('*').eq('projeto_id', projetoId).maybeSingle()
     ]);
     if (pj.error) throw pj.error;
-    const comps = (cp.data || []).map((c) => ({ ...c, parametros: c.parametros || {} }));
+    const d = resumoDoProjeto(pj.data, cp.data || [], ctx);
+    return {
+      projeto: pj.data, descricao: d.bullets.join('\n'), material: d.material.join('\n'), resumo: d.resumo,
+      valor: (pr.data && Number(pr.data.preco_final)) || 0,
+      deslocamento: (pr.data && Number(pr.data.deslocamento)) || 0,
+      ganchosMarceneiro: d.ganchosMarceneiro, foto: (pj.data.referencias || [])[0]
+    };
+  }
+
+  // Textos para o cliente: material arredondado para cima, sem passagens nem espaçamento.
+  function resumoDoProjeto(projeto, componentes, ctx) {
+    const comps = componentes.map((c) => ({ ...c, parametros: c.parametros || {} }));
     const calc = window.Calc.calcularProjeto(comps, ctx);
     const passo = (estado.perfil || {}).arredondar_para ?? 10;
-    const trama = comps.map((c) => (ctx.tramas.find((t) => t.id === c.trama_id) || {}).nome).filter(Boolean);
+    const tramas = [...new Set(comps.map((c) => (ctx.tramas.find((t) => t.id === c.trama_id) || {}).nome).filter(Boolean))];
     const vaos = comps.map((c, i) => (c.tipo === 'vao' && calc.componentes[i].ganchos ? { c, r: calc.componentes[i] } : null)).filter(Boolean);
-    const medidas = vaos.map(({ c, r }) => `${numero(c.parametros.largura_cm)} × ${numero(c.parametros.altura_cm)} cm${r.telas > 1 ? ` (${r.telas} telas)` : ''}`);
-    const cat = (pj.data.categorias && pj.data.categorias.nome) || pj.data.nome;
-    const descricao = `${cat} em macramê${trama.length ? `, trama ${[...new Set(trama)].join(' e ').toLowerCase()}` : ''}.${medidas.length ? ` Medidas: ${medidas.join('; ')}.` : ''}`;
-    const mats = [];
+    const cat = (projeto.categorias && projeto.categorias.nome) || projeto.nome;
+    const fioPrincipal = calc.materiais.map((m) => ctx.materiais.find((x) => x.id === m.material_id)).find((m) => m && m.unidade_consumo === 'metro');
+    const nomeFio = fioPrincipal ? [App.nomeTipo(fioPrincipal.tipo_material_id), fioPrincipal.espessura_mm ? numero(fioPrincipal.espessura_mm) + ' mm' : ''].filter(Boolean).join(' ') : '';
+    const area = (m2) => numero(m2, 2) + ' m²';
+    const medidas = vaos.map(({ c, r }) => `${r.telas > 1 ? `${r.telas} telas de` : '1 tela de'} ${numero(c.parametros.largura_cm)} × ${numero(c.parametros.altura_cm)} cm (${area(r.area_m2)}${r.telas > 1 ? ' no total' : ''})`);
+    const pecas = comps.filter((c) => c.tipo === 'trama' && c.parametros.largura_cm && c.parametros.comprimento_cm).map((c) => `${numero(c.parametros.largura_cm)} × ${numero(c.parametros.comprimento_cm)} cm`);
+    const bullets = [];
+    medidas.forEach((m) => bullets.push(m + '.'));
+    if (!medidas.length && pecas.length) bullets.push('Medidas: ' + pecas.join('; ') + '.');
+    if (tramas.length) bullets.push(`Trama ${tramas.join(' e ').toLowerCase()}.`);
+    if (vaos.length) bullets.push('Acabamento em corda nos ganchos.');
+    const material = [];
     calc.materiais.forEach((m) => {
       const mat = ctx.materiais.find((x) => x.id === m.material_id);
       if (!mat) return;
-      const tipo = App.nomeTipo(mat.tipo_material_id);
+      const ehGancho = vaos.some(({ c }) => c.parametros.gancho_material_id === m.material_id);
+      if (ehGancho) return; // ganchos entram abaixo
+      const nome = [App.nomeTipo(mat.tipo_material_id), mat.espessura_mm ? numero(mat.espessura_mm) + ' mm' : ''].filter(Boolean).join(' ');
       const qtd = window.Calc.arredondarCima(m.quantidade, passo);
-      const nome = [tipo, mat.espessura_mm ? numero(mat.espessura_mm) + ' mm' : ''].filter(Boolean).join(' ');
-      if (m.unidade === 'metro') mats.push(`${nome}: ${qtd} m`);
-      else if (m.unidade === 'unidade') mats.push(`${nome}: ${qtd} ${qtd === 1 ? 'unidade' : 'unidades'}`);
+      if (m.unidade === 'metro') material.push(`${nome}: ${qtd} metros.`);
+      else if (m.unidade === 'unidade') material.push(`${nome}: ${qtd} ${qtd === 1 ? 'unidade' : 'unidades'}.`);
     });
-    const ganchosMarceneiro = vaos.some(({ c }) => c.parametros.colocacao === 'marceneiro');
+    // Ganchos sempre aparecem quando há vão, mesmo sem material cadastrado
+    if (calc.ganchos_total) {
+      const gMat = vaos.map(({ c }) => ctx.materiais.find((x) => x.id === c.parametros.gancho_material_id)).find(Boolean);
+      const base = gMat ? App.nomeTipo(gMat.tipo_material_id).toLowerCase() : 'gancho inox';
+      const nomeG = /^ganchos?\b/.test(base) ? base.replace(/^ganchos?/, 'ganchos') : 'ganchos ' + base;
+      const qtd = window.Calc.arredondarCima(calc.ganchos_total, passo);
+      const cliente = vaos.every(({ c }) => c.parametros.ganchos_fornecidos === 'cliente');
+      material.push(`${qtd} ${nomeG}${cliente ? ' (fornecidos pelo cliente)' : ''}.`);
+    }
+    const cidade = projeto.clientes && projeto.clientes.cidade;
+    const resumo = `${cat} em ${nomeFio ? nomeFio.toLowerCase().replace(/ \d+([,.]\d+)? mm$/, '') : 'macramê'}${tramas.length ? ' com trama ' + tramas.join(' e ').toLowerCase() : ''}${cidade ? ', ' + cidade : ''}.`;
     return {
-      projeto: pj.data, descricao, material: mats.join('\n'),
-      valor: (pr.data && Number(pr.data.preco_final)) || 0,
-      deslocamento: (pr.data && Number(pr.data.deslocamento)) || 0,
-      ganchosMarceneiro, foto: (pj.data.referencias || [])[0]
+      bullets, material, resumo, calc, vaos, tramas, cat, nomeFio, fioPrincipal,
+      ganchosMarceneiro: vaos.some(({ c }) => c.parametros.colocacao === 'marceneiro'),
+      medidasCurtas: vaos.length ? vaos.map(({ c, r }) => `${r.telas > 1 ? r.telas + ' × ' : ''}${numero(c.parametros.largura_cm)} × ${numero(c.parametros.altura_cm)} cm`).join(' + ') : pecas.join(' + '),
+      areaTotal: calc.area_m2
     };
   }
 
@@ -97,6 +127,7 @@
         if (t.deslocamento) { ed.proposta.desloc_modo = 'incluso'; ed.proposta.deslocamento_valor = t.deslocamento; }
         ed.proposta.ganchos_marceneiro = t.ganchosMarceneiro;
         ed.itens.push({ projeto_id: partes[2], opcao: null, descricao_cliente: t.descricao, material_cliente: t.material, valor: t.valor });
+        ed.proposta.resumo_projeto = t.resumo;
       }
     } else {
       const [p, it] = await Promise.all([
@@ -149,7 +180,10 @@
           <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-p="ganchos_marceneiro" ${p.ganchos_marceneiro ? 'checked' : ''}> Ganchos colocados pelo marceneiro</label>
           <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-p="mostrar_portfolio" ${p.mostrar_portfolio !== false ? 'checked' : ''}> Incluir página de projetos realizados</label>
         </div>
-        <div style="margin-top:14px">${campo('Observações', `<textarea data-p="observacoes" rows="2">${esc(p.observacoes)}</textarea>`)}</div>
+        <div class="grade g2" style="margin-top:14px">
+          ${campo('Projeto (uma linha)', `<input data-p="resumo_projeto" value="${esc(p.resumo_projeto)}" placeholder="Ex.: Guarda-corpo em corda náutica com trama quadrado, São José dos Campos.">`, '', 'Aparece no orçamento, logo abaixo do nome do cliente.')}
+          ${campo('Observações', `<textarea data-p="observacoes" rows="2">${esc(p.observacoes)}</textarea>`, '', 'Entram como itens na descrição do pedido.')}
+        </div>
       </section>
 
       <section class="card">
@@ -195,7 +229,7 @@
               <div class="campo"><label>&nbsp;</label><button type="button" class="botao texto peq" data-refazer>Refazer textos pelo projeto</button></div>
             </div>
             <div class="grade g2" style="margin-top:12px">
-              ${campo('Descrição para o cliente', `<textarea data-it="descricao_cliente" rows="3">${esc(it.descricao_cliente)}</textarea>`)}
+              ${campo('Descrição do pedido', `<textarea data-it="descricao_cliente" rows="4">${esc(it.descricao_cliente)}</textarea>`, 'Uma linha por item. Deslocamento e marceneiro entram sozinhos.')}
               ${campo('Material (arredondado)', `<textarea data-it="material_cliente" rows="3">${esc(it.material_cliente)}</textarea>`, 'Uma linha por material.')}
             </div>
           </div>
@@ -224,6 +258,7 @@
       try {
         const t = await textosDoProjeto(id, ctx);
         ed.itens.push({ projeto_id: id, opcao: null, descricao_cliente: t.descricao, material_cliente: t.material, valor: t.valor });
+        if (!p.resumo_projeto) p.resumo_projeto = t.resumo;
         if (!p.cliente_id && t.projeto.cliente_id) p.cliente_id = t.projeto.cliente_id;
         if (t.ganchosMarceneiro) p.ganchos_marceneiro = true;
         desenhar(ed, ctx, projetos);
@@ -244,7 +279,7 @@
           deslocamento_valor: p.desloc_modo === 'separado' ? Number(p.deslocamento_valor) || 0 : 0,
           deslocamento_cidade: p.desloc_modo === 'nenhum' ? null : p.deslocamento_cidade || null,
           previsao_entrega: p.previsao_entrega || 'a combinar', cor_material: p.cor_material || 'a definir',
-          observacoes: p.observacoes || null, ganchos_marceneiro: !!p.ganchos_marceneiro, mostrar_portfolio: p.mostrar_portfolio !== false
+          observacoes: p.observacoes || null, resumo_projeto: p.resumo_projeto || null, ganchos_marceneiro: !!p.ganchos_marceneiro, mostrar_portfolio: p.mostrar_portfolio !== false
         };
         let id = p.id;
         if (id) { const r = await sb.from('propostas').update(dados).eq('id', id); if (r.error) throw r.error; }
@@ -283,87 +318,145 @@
 
   async function montarProposta(id) {
     const perfil = estado.perfil || {};
+    const ctx = await App.carregarContexto();
     const [p, it, fotos, txt] = await Promise.all([
       sb.from('propostas').select('*, clientes(nome, telefone, cidade)').eq('id', id).single(),
-      sb.from('proposta_itens').select('*, projetos(nome, referencias)').eq('proposta_id', id).order('ordem'),
-      sb.from('portfolio').select('*').eq('artesa_id', estado.sessao.user.id).eq('ativo', true).order('ordem').limit(6),
+      sb.from('proposta_itens').select('*').eq('proposta_id', id).order('ordem'),
+      sb.from('portfolio').select('*').eq('artesa_id', estado.sessao.user.id).eq('ativo', true).order('ordem').limit(5),
       textosPadrao()
     ]);
     if (p.error) throw p.error;
     const prop = p.data, itens = it.data || [];
-    const corP = perfil.cor_primaria || '#B5460A', corS = perfil.cor_secundaria || '#8B8110', corF = perfil.cor_fundo || '#F5F1E9';
-    const caminhos = itens.map((i) => ((i.projetos && i.projetos.referencias) || [])[0]).map((r) => r && r.path).filter(Boolean);
+    const ids = [...new Set(itens.map((i) => i.projeto_id).filter(Boolean))];
+    const [pjs, cps] = ids.length ? await Promise.all([
+      sb.from('projetos').select('*, categorias(nome), clientes(cidade)').in('id', ids),
+      sb.from('projeto_componentes').select('*').in('projeto_id', ids).order('ordem')
+    ]) : [{ data: [] }, { data: [] }];
+    const projetos = {};
+    (pjs.data || []).forEach((pj) => { projetos[pj.id] = { pj, comps: (cps.data || []).filter((c) => c.projeto_id === pj.id) }; });
+    const caminhos = [];
+    Object.values(projetos).forEach(({ pj }) => (pj.referencias || []).slice(0, 2).forEach((r) => r && r.path && caminhos.push(r.path)));
     const assinadas = caminhos.length ? ((await sb.storage.from('referencias').createSignedUrls(caminhos, 3600)).data || []) : [];
-    const urlDe = (path) => (assinadas.find((a) => a.path === path) || {}).signedUrl;
+    const urlDe = (r) => (r && (assinadas.find((a) => a.path === r.path) || {}).signedUrl) || '';
+
+    const P = perfil.cor_primaria || '#B5460A', S = perfil.cor_secundaria || '#8B8110', F = perfil.cor_fundo || '#F5F1E9';
+    const ESC = '#5b4636';
     const data = new Date(prop.data_emissao + 'T12:00').toLocaleDateString('pt-BR');
-    const cliente = (prop.clientes && prop.clientes.nome) || '';
-    const logo = (fundoEscuro) => perfil.logo_url ? `<img src="${esc(perfil.logo_url)}" style="max-width:${fundoEscuro ? '70%' : '160px'};max-height:${fundoEscuro ? '220px' : '60px'}">` : `<div style="font-size:${fundoEscuro ? 54 : 22}px;font-weight:900;letter-spacing:.05em">${esc(perfil.nome_marca || '')}</div>`;
-    const sub = (s) => `<div style="font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:${corS};font-weight:700;margin-bottom:6px">${esc(s)}</div>`;
-    const tit = (s) => `<h1 style="font-size:34px;color:${corP};margin-bottom:18px">${esc(s)}</h1>`;
-    const rodape = `<div style="margin-top:auto;padding-top:14px;display:flex;justify-content:space-between;font-size:10px;color:#8a7a6a;border-top:1px solid #e8e0d2"><span>${esc(perfil.nome_marca || '')}</span><span>Proposta ${esc(prop.numero)} · ${data}</span></div>`;
+    const cli = prop.clientes || {};
     const preencher = (t, vars) => String(t || '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+    const folha = (estilo, html) => `<div class="folha" style="padding:0;position:relative;overflow:hidden;font-family:Lato,sans-serif;${estilo}">${html}</div>`;
+    const logo = (left, top, w) => perfil.logo_url ? `<img src="${esc(perfil.logo_url)}" alt="${esc(perfil.nome_marca || '')}" style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:auto">` : `<div style="position:absolute;left:0;right:0;top:${top}px;text-align:center;font-size:${Math.round(w / 5)}px;font-weight:900;color:${F}">${esc(perfil.nome_marca || '')}</div>`;
+    const linhas = (t) => String(t || '').split('\n').map((l) => l.replace(/^[•\-\s]+/, '').trim()).filter(Boolean);
     const folhas = [];
 
-    // Capa
-    folhas.push(`<div class="folha" style="background:${corP};color:${corF};justify-content:center;align-items:center;text-align:center;gap:28px">
-      ${logo(true)}
-      <div style="font-size:13px;letter-spacing:.5em;font-weight:300">PROPOSTA COMERCIAL</div>
-      <div style="font-size:15px">${cliente ? esc(cliente) + ' · ' : ''}Nº ${esc(prop.numero)} · ${data}</div></div>`);
+    // 1 · Capa
+    folhas.push(folha(`background:${P}`, `${perfil.capa_url ? `<img src="${esc(perfil.capa_url)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">` : ''}${logo(252, 539, 289)}`));
 
-    // Apresentação
-    if (perfil.texto_apresentacao) folhas.push(`<div class="folha" style="background:${corF}">
-      ${sub('Apresentação')}${tit(perfil.nome || perfil.nome_marca || 'Quem sou eu')}
-      <div style="font-size:14px;line-height:1.75;white-space:pre-line;color:#3a2a1e">${esc(perfil.texto_apresentacao)}</div>
-      ${perfil.assinatura_url ? `<img src="${esc(perfil.assinatura_url)}" style="max-height:70px;max-width:220px;margin-top:24px">` : ''}
-      ${rodape}</div>`);
+    // 2 · Apresentação
+    if (perfil.texto_apresentacao || perfil.foto_apresentacao_url) {
+      const pars = String(perfil.texto_apresentacao || '').split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+      const primeiro = (perfil.nome || '').split(' ')[0];
+      folhas.push(folha(`background:${F};color:${P};display:flex;flex-direction:column`, `
+        ${perfil.foto_apresentacao_url ? `<img src="${esc(perfil.foto_apresentacao_url)}" alt="" style="width:100%;height:484px;object-fit:cover">` : '<div style="height:120px"></div>'}
+        <div style="box-sizing:border-box;padding:36px 85px 0;display:flex;flex-direction:column;gap:30px">
+          <div style="font-size:27px;line-height:1.2"><span style="font-weight:900">${esc(perfil.apresentacao_titulo || (primeiro ? `Olá, eu sou a ${primeiro},` : 'Olá!'))}</span>${perfil.apresentacao_subtitulo ? '<br>' + esc(perfil.apresentacao_subtitulo).replace(/\n/g, '<br>') : ''}</div>
+          <div style="display:flex;flex-direction:column;gap:20px;font-size:17px;line-height:1.5;text-align:justify">${pars.map((x, i) => `<div style="${i === 0 ? 'font-weight:700' : ''}">${esc(x).replace(/\n/g, '<br>')}</div>`).join('')}</div>
+        </div>`));
+    }
 
-    // Projetos realizados
-    if (prop.mostrar_portfolio !== false && (fotos.data || []).length) folhas.push(`<div class="folha">
-      ${sub('Portfólio')}${tit('Projetos realizados')}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1">${(fotos.data || []).map((f) => `<div style="border-radius:8px;overflow:hidden;background:${corF};aspect-ratio:4/3"><img src="${esc(f.foto_url)}" style="width:100%;height:100%;object-fit:cover"></div>`).join('')}</div>
-      ${rodape}</div>`);
+    // 3 e 4 · Projetos realizados + fotos
+    const fs = fotos.data || [];
+    if (prop.mostrar_portfolio !== false) {
+      folhas.push(folha(`background:${P};color:${F}`, `
+        ${perfil.foto_projetos_url ? `<img src="${esc(perfil.foto_projetos_url)}" alt="" style="position:absolute;left:471px;top:0;width:324px;height:100%;object-fit:cover">` : ''}
+        ${perfil.assinatura_url ? `<img src="${esc(perfil.assinatura_url)}" alt="" style="position:absolute;left:80px;top:63px;width:273px;height:auto">` : `<div style="position:absolute;left:80px;top:70px;font-size:22px;font-weight:300">${esc(perfil.nome || '')}</div>`}
+        <div style="position:absolute;left:80px;top:470px;display:flex;flex-direction:column">
+          <div style="font-size:23px;font-weight:300;line-height:1.1">alguns...</div>
+          <div style="font-size:66px;font-weight:400;line-height:.95">projetos</div>
+          <div style="font-size:66px;font-weight:900;line-height:1">realizados!</div>
+        </div>
+        ${perfil.logo_url ? `<img src="${esc(perfil.logo_url)}" alt="" style="position:absolute;left:80px;top:1043px;width:117px;height:auto">` : ''}`));
+      if (fs.length) {
+        const n = fs.length;
+        const linhasGrade = n === 1 ? '1fr' : n === 2 ? '1fr 1fr' : n <= 4 ? '1fr 1fr' : '404px 380px 1fr';
+        const span = (i) => (n === 1 || n === 2 || (n === 3 && i === 2) || (n === 5 && i === 4) ? 'grid-column:span 2;' : '');
+        folhas.push(folha(`background:${P};display:grid;grid-template-columns:1fr 1fr;grid-template-rows:${linhasGrade}`,
+          fs.map((f, i) => `<img src="${esc(f.foto_url)}" alt="${esc(f.legenda || '')}" style="width:100%;height:100%;object-fit:cover;min-height:0;${span(i)}">`).join('')));
+      }
+    }
 
-    // Cada projeto
-    itens.forEach((i) => {
-      const ref = ((i.projetos && i.projetos.referencias) || [])[0];
-      const url = ref && urlDe(ref.path);
-      folhas.push(`<div class="folha">
-        ${sub(i.opcao ? 'Opção ' + i.opcao : 'O projeto')}${tit((i.projetos && i.projetos.nome) || 'Projeto')}
-        ${url ? `<div style="border-radius:10px;overflow:hidden;background:${corF};height:120mm;margin-bottom:18px"><img src="${esc(url)}" style="width:100%;height:100%;object-fit:cover"></div>` : ''}
-        <div style="font-size:15px;line-height:1.7;margin-bottom:16px">${esc(i.descricao_cliente)}</div>
-        ${i.material_cliente ? `<div style="background:${corF};border-radius:10px;padding:14px 18px"><div style="font-weight:900;color:${corP};margin-bottom:6px">Material</div><div style="white-space:pre-line;line-height:1.7">${esc(i.material_cliente)}</div>
-          <div style="margin-top:6px">Cor: ${esc(prop.cor_material || 'a definir')}</div></div>` : ''}
-        ${rodape}</div>`);
+    // 5 · O projeto (um por item)
+    const cidade = prop.deslocamento_cidade || cli.cidade || '';
+    const resumos = itens.map((i) => (projetos[i.projeto_id] ? resumoDoProjeto(projetos[i.projeto_id].pj, projetos[i.projeto_id].comps, ctx) : null));
+    itens.forEach((i, k) => {
+      const pr = projetos[i.projeto_id];
+      const rs = resumos[k];
+      const refs = (pr && pr.pj.referencias) || [];
+      const foto1 = urlDe(refs[0]), foto2 = urlDe(refs[1]);
+      const cor = prop.cor_material && prop.cor_material !== 'a definir' ? prop.cor_material : (rs && rs.fioPrincipal && rs.fioPrincipal.cor) || 'cor a definir';
+      const cartao = (rot, val, sub) => `<div style="border:1.5px solid ${P};border-radius:12px;padding:14px 18px"><div style="font-size:12px;letter-spacing:.08em;font-weight:700">${esc(rot)}</div><div style="font-size:22px;font-weight:900">${esc(val)}</div>${sub ? `<div style="font-size:14px;color:${ESC}">${esc(sub)}</div>` : ''}</div>`;
+      const cartoes = [];
+      if (rs && rs.medidasCurtas) cartoes.push(cartao(rs.vaos.length ? (rs.vaos.some((v) => v.r.telas > 1) ? 'TELAS' : 'VÃO') : 'MEDIDAS', rs.medidasCurtas, rs.areaTotal ? `${numero(rs.areaTotal, 2)} m² no total` : ''));
+      if (rs) cartoes.push(cartao(rs.tramas.length ? 'TRAMA' : 'PEÇA', rs.tramas.length ? rs.tramas.join(' e ') : rs.cat, [rs.nomeFio && rs.nomeFio.toLowerCase(), cor ? (cor.startsWith('cor') ? cor : 'cor ' + cor) : ''].filter(Boolean).join(', ')));
+      if (cidade) cartoes.push(cartao('LOCAL', cidade, prop.deslocamento_incluso ? 'deslocamento incluso' : ''));
+      else cartoes.push(cartao('ENTREGA', prop.previsao_entrega || 'a combinar', ''));
+      folhas.push(folha(`background:${F};color:${P};display:flex;flex-direction:column`, `
+        <div style="position:relative;width:100%;height:540px;background:#fff">
+          ${foto1 ? `<img src="${esc(foto1)}" alt="" style="width:100%;height:540px;object-fit:contain">` : `<div style="height:540px;display:grid;place-items:center;color:${ESC};font-size:14px;background:${F}">Foto do projeto</div>`}
+          ${refs[0] && refs[0].legenda ? `<div style="position:absolute;left:20px;bottom:16px;background:${F};color:${ESC};font-size:12px;padding:4px 10px;border-radius:4px">${esc(refs[0].legenda)}</div>` : ''}
+        </div>
+        <div style="box-sizing:border-box;padding:34px 80px 0;display:flex;flex-direction:column;gap:18px">
+          <h1 style="margin:0;font-size:37px;font-weight:900;line-height:1;color:${P}">${i.opcao ? 'Opção ' + esc(i.opcao) : 'O projeto'}</h1>
+          <div style="font-size:17px;line-height:1.55">${esc((rs && rs.resumo) || (pr && pr.pj.nome) || '')}</div>
+          <div style="display:flex;gap:20px;align-items:stretch">
+            ${foto2 ? `<div style="width:220px;display:flex;flex-direction:column;gap:6px"><img src="${esc(foto2)}" alt="" style="width:220px;height:295px;object-fit:cover;border-radius:6px">${refs[1] && refs[1].legenda ? `<div style="font-size:12px;color:${ESC}">${esc(refs[1].legenda)}</div>` : ''}</div>` : ''}
+            <div style="flex:1;display:flex;flex-direction:column;gap:12px">${cartoes.join('')}</div>
+          </div>
+        </div>`));
     });
 
-    // Orçamento
+    // 6 · Orçamento
     const comOpcao = itens.some((i) => i.opcao);
-    const linhasValor = prop.valor_unico
-      ? `<tr><td style="padding:12px 0">${comOpcao ? 'Valor para qualquer uma das opções' : 'Valor total'}</td><td style="text-align:right;font-weight:900;font-size:20px;color:${corP}">${moeda(prop.valor_total)}</td></tr>`
-      : itens.map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">${i.opcao ? '<strong>Opção ' + esc(i.opcao) + '</strong> · ' : ''}${esc((i.projetos && i.projetos.nome) || '')}</td><td style="text-align:right;border-bottom:1px solid #eee;font-weight:700">${moeda(i.valor)}</td></tr>`).join('')
-        + (Number(prop.deslocamento_valor) > 0 ? `<tr><td style="padding:10px 0;border-bottom:1px solid #eee">Deslocamento${prop.deslocamento_cidade ? ' até ' + esc(prop.deslocamento_cidade) : ''}</td><td style="text-align:right;border-bottom:1px solid #eee;font-weight:700">${moeda(prop.deslocamento_valor)}</td></tr>` : '')
-        + (!comOpcao ? `<tr><td style="padding:14px 0;font-weight:900">Total</td><td style="text-align:right;font-weight:900;font-size:20px;color:${corP}">${moeda(prop.valor_total)}</td></tr>` : '');
     const notas = [];
-    if (prop.deslocamento_incluso) notas.push(preencher(txt.deslocamento_incluso || 'Deslocamento até {cidade} incluso.', { cidade: prop.deslocamento_cidade || 'o local' }));
+    if (prop.deslocamento_incluso) notas.push(preencher(txt.deslocamento_incluso || 'Deslocamento até {cidade} incluso.', { cidade: prop.deslocamento_cidade || cli.cidade || 'o local' }));
+    if (Number(prop.deslocamento_valor) > 0) notas.push(`Deslocamento${prop.deslocamento_cidade ? ' até ' + prop.deslocamento_cidade : ''}: ${moeda(prop.deslocamento_valor)}.`);
     if (prop.ganchos_marceneiro && txt.ganchos_marceneiro) notas.push(txt.ganchos_marceneiro);
-    if (prop.observacoes) notas.push(prop.observacoes);
-    folhas.push(`<div class="folha">
-      ${sub('Investimento')}${tit('Orçamento')}
-      <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">${linhasValor}</table>
-      ${notas.length ? `<div style="font-size:13px;line-height:1.7;margin-bottom:18px">${notas.map((n) => `<div>• ${esc(n)}</div>`).join('')}</div>` : ''}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;line-height:1.6">
-        ${perfil.condicoes_pagamento ? `<div style="background:${corF};border-radius:10px;padding:14px"><strong style="color:${corP}">Condições de pagamento</strong><div style="white-space:pre-line">${esc(perfil.condicoes_pagamento)}</div></div>` : ''}
-        ${perfil.formas_pagamento ? `<div style="background:${corF};border-radius:10px;padding:14px"><strong style="color:${corP}">Formas de pagamento</strong><div style="white-space:pre-line">${esc(perfil.formas_pagamento)}</div></div>` : ''}
-        <div style="background:${corF};border-radius:10px;padding:14px"><strong style="color:${corP}">Previsão de entrega</strong><div>${esc(prop.previsao_entrega || 'a combinar')}</div></div>
-        <div style="background:${corF};border-radius:10px;padding:14px"><strong style="color:${corP}">Validade</strong><div>${esc(preencher(txt.validade || 'Válido por {dias} dias.', { dias: prop.validade_dias }))}</div></div>
-      </div>
-      ${rodape}</div>`);
+    linhas(prop.observacoes).forEach((l) => notas.push(l));
+    const bloco = (titulo, conteudo) => `<div style="border:1.3px solid #DDD6CA">${titulo ? `<div style="padding:11px 16px;border-bottom:1.3px solid #DDD6CA;font-weight:700;font-size:15px">${esc(titulo)}</div>` : ''}${conteudo}</div>`;
+    const lista = (ls) => `<div style="padding:10px 16px 12px 32px;font-size:15px;line-height:1.6">${ls.map((l) => `<div>• ${esc(l)}</div>`).join('')}</div>`;
+    const descricao = itens.length === 1
+      ? lista([...linhas(itens[0].descricao_cliente), ...notas])
+      : `<div style="padding:10px 16px 12px;font-size:15px;line-height:1.6">${itens.map((i) => `<div style="font-weight:700;margin-top:4px">${i.opcao ? 'Opção ' + esc(i.opcao) : esc((projetos[i.projeto_id] && projetos[i.projeto_id].pj.nome) || '')}</div>${linhas(i.descricao_cliente).map((l) => `<div style="padding-left:16px">• ${esc(l)}</div>`).join('')}`).join('')}${notas.map((l) => `<div style="margin-top:4px">• ${esc(l)}</div>`).join('')}</div>`;
+    const materiais = itens.length === 1
+      ? linhas(itens[0].material_cliente).map(esc).join('<br>')
+      : itens.map((i) => `<strong>${i.opcao ? 'Opção ' + esc(i.opcao) : esc((projetos[i.projeto_id] && projetos[i.projeto_id].pj.nome) || '')}:</strong> ${linhas(i.material_cliente).map(esc).join(' · ')}`).join('<br>');
+    const valorBox = !prop.valor_unico && comOpcao
+      ? itens.map((i) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-size:14px;font-weight:700">${i.opcao ? 'Opção ' + esc(i.opcao) : esc((projetos[i.projeto_id] && projetos[i.projeto_id].pj.nome) || '')}</span><span style="font-size:26px;font-weight:900">${moeda(Number(i.valor || 0) + Number(prop.deslocamento_valor || 0))}</span></div>`).join('')
+      : `<div style="font-size:14px;font-weight:700">${comOpcao ? 'Valor para qualquer opção:' : 'Valor total:'}</div><div style="font-size:38px;font-weight:900;line-height:1.1">${moeda(prop.valor_total)}</div>`;
+    folhas.push(folha(`background:${F};color:${P}`, `
+      <div style="box-sizing:border-box;height:100%;padding:88px 80px 70px;display:flex;flex-direction:column;gap:16px">
+        <h1 style="margin:0;font-size:37px;font-weight:900;line-height:1;color:${P}">Orçamento</h1>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <div style="flex:1;background:${P};color:${F};border-radius:10px;padding:12px 16px;font-size:16px;line-height:1.3"><span style="font-weight:900">Nome do(a) Cliente:</span><br><span style="font-weight:700">${esc(cli.nome || 'a definir')}</span>${cli.telefone ? ' - Contato: ' + esc(cli.telefone) : ''}</div>
+          <div style="width:160px;background:${P};color:${F};border-radius:10px;padding:12px 16px;font-size:16px;line-height:1.3"><span style="font-weight:900">Data:</span><br>${data}</div>
+        </div>
+        ${prop.resumo_projeto ? `<div style="font-size:16px;line-height:1.45"><span style="font-weight:700">Projeto:</span> ${esc(prop.resumo_projeto)}</div>` : ''}
+        ${bloco('Descrição do pedido:', descricao)}
+        ${bloco('', `<div style="padding:11px 16px;font-size:15px;line-height:1.6"><span style="font-weight:700">Material:</span><br>${materiais || '-'}</div><div style="padding:10px 16px;border-top:1.3px solid #DDD6CA;font-size:15px"><span style="font-weight:700">Cor:</span> ${esc(prop.cor_material || 'a definir')}.</div>`)}
+        <h2 style="margin:12px 0 0;font-size:37px;font-weight:900;line-height:1;color:${P}">Investimento</h2>
+        <div style="display:flex;gap:12px;align-items:stretch">
+          <div style="flex:1;background:${S};color:${F};border-radius:10px;padding:14px 20px;display:flex;flex-direction:column;justify-content:center;gap:4px">${valorBox}</div>
+          <div style="flex:1;border:1.3px solid ${S};border-radius:10px;padding:12px 18px;color:${S};font-size:14px;line-height:1.45;display:flex;flex-direction:column;gap:6px">
+            ${perfil.condicoes_pagamento ? `<div><span style="font-weight:700">Para confirmar o pedido:</span> ${esc(perfil.condicoes_pagamento)}</div>` : ''}
+            ${perfil.formas_pagamento ? `<div><span style="font-weight:700">Pagamento:</span> ${esc(perfil.formas_pagamento)}</div>` : ''}
+          </div>
+        </div>
+        <div style="font-size:16px;margin-top:auto"><span style="font-weight:900">Previsão de entrega:</span> ${esc(prop.previsao_entrega || 'a combinar')}.</div>
+      </div>`));
 
-    // Contracapa
-    folhas.push(`<div class="folha" style="background:${corP};color:${corF};justify-content:center;align-items:center;text-align:center;gap:20px">
-      ${logo(true)}
-      <div style="font-size:16px;line-height:1.9">${[perfil.instagram, perfil.telefone].filter(Boolean).map(esc).join('<br>')}</div>
-      <div style="font-size:13px;letter-spacing:.4em;font-weight:300">AGRADEÇO A CONFIANÇA</div></div>`);
+    // 7 · Contracapa
+    folhas.push(folha(`background:${P};color:${F}`, `${logo(252, 539, 289)}
+      <div style="position:absolute;left:0;right:0;top:1029px;text-align:center;font-size:17px;font-weight:700">${esc(preencher(txt.validade || 'Esse orçamento é válido por até {dias} dias a partir da data de emissão.', { dias: prop.validade_dias }))}</div>`));
     return folhas.join('');
   }
 })();

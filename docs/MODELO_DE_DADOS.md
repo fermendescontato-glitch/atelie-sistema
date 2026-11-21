@@ -275,3 +275,22 @@ As partes que compõem a peça. Os parâmetros variam por tipo.
 | Artesã editar registros gerais | Não |
 | Artesã ver dados de outra artesã | Não |
 | Você, pelo painel do Supabase | Vê e edita tudo |
+
+---
+
+## Atualizações · v0.2 e v0.3 (SQL 002 e 003)
+
+| Tabela | O que mudou |
+|---|---|
+| `categorias` | + `familia` (vao, bolsa, colar_mesa, colar, luminaria, painel, hang_plant, pingente_parede, livre), `icone`, `descricao` |
+| `projetos` | status: em_criacao, pronto, em_proposta, aprovado, em_producao, entregue, pausado, arquivado. + `para_portfolio`, `etapa` |
+| `clientes` | + `cep`, `logradouro`, `numero`, `complemento`, `bairro`, `uf`, `aniversario`, `instagram`, `origem`, `aceita_novidades`, `indicado_por_id` |
+| `perfis` | + `taxas_pagamento` (jsonb: pix, dinheiro, debito, credito[1x..Nx]), `sinal_pct`, `esp_min_padrao`, `esp_max_padrao`, `margem_vao_cm`, `custos_fixos_mes`, `prolabore_desejado`, `horas_mes`, `ia_limite_mensal` |
+| `propostas` | + `deslocamento_valor`, `deslocamento_cidade`, `ganchos_marceneiro`, `mostrar_portfolio` |
+| `ia_uso`, `ia_conversas` | uso mensal e conversas da Nath |
+| `categorias_financeiras` | ✏️ geral ou da artesã. `tipo`: despesa ou retirada (pró-labore) |
+| `vendas` | cliente, proposta (1 venda por proposta), data, valor_total, status aberta/quitada/cancelada |
+| `venda_itens` | peças da venda (com ou sem projeto) |
+| `recebimentos` | parcelas: vencimento, valor, forma, parcelas no cartão, taxa %, valor líquido, recebido_em |
+| `despesas_fixas` | contas mensais (dia de vencimento). Geram uma despesa por mês |
+| `despesas` | avulsas e fixas: categoria, valor, vencimento, pago_em, material comprado (soma no estoque) |

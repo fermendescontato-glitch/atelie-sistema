@@ -353,6 +353,20 @@
         </section>
 
         <section class="card">
+          <h2>Proposta · imagens e apresentação</h2><p class="sub">Montam as páginas da proposta, no modelo da sua marca.</p>
+          <div class="grade g3">
+            ${['capa_url:Foto da capa:Foto de uma peça sua. O logo fica por cima, no centro.', 'foto_apresentacao_url:Sua foto:Aparece no topo da página de apresentação.', 'foto_projetos_url:Foto da página de projetos:Faixa vertical ao lado do título "projetos realizados".'].map((x) => { const [k, rot, info] = x.split(':'); return `<div class="campo"><label>${esc(rot)}${dica(info)}</label>
+              <div style="display:flex;gap:12px;align-items:center"><div class="logo-preview" style="background:var(--creme-2)">${p[k] ? `<img src="${esc(p[k])}" alt="" style="max-width:100%;max-height:100%;object-fit:cover">` : '<span style="color:var(--texto-2)">Sem foto</span>'}</div>
+              <div><input type="file" accept="image/png,image/jpeg,image/webp" id="arq-${k}" data-img-campo="${k}" class="sr-only"><label for="arq-${k}" class="botao sec peq">Enviar</label></div></div></div>`; }).join('')}
+          </div>
+          <div class="grade g2" style="margin-top:16px">
+            ${campo('Título da apresentação', entrada('apresentacao_titulo', p.apresentacao_titulo, 'placeholder="Olá, eu sou a Nathália,"'), '', 'Primeira linha, em negrito. Vazio: usa "Olá, eu sou a" + seu primeiro nome.')}
+            ${campo('Complemento do título', entrada('apresentacao_subtitulo', p.apresentacao_subtitulo, 'placeholder="artista têxtil e criadora da Nodana!"'))}
+          </div>
+          <p class="ajuda" style="margin:10px 0 0;font-size:12px;color:var(--texto-2)">O texto de apresentação fica em "Sua marca". Deixe uma linha em branco entre os parágrafos. O primeiro sai em negrito.</p>
+        </section>
+
+        <section class="card">
           <h2>Proposta</h2><p class="sub">Textos padrão do orçamento.</p>
           <div class="grade g3">
             ${campo('Validade', numeroCom('validade_proposta_dias', p.validade_proposta_dias, 'dias', 'min="1"'))}
@@ -405,7 +419,7 @@
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const d = new FormData(form);
-      const textos = ['nome', 'nome_marca', 'telefone', 'instagram', 'texto_apresentacao', 'cor_primaria', 'cor_secundaria', 'cor_fundo', 'condicoes_pagamento', 'formas_pagamento'];
+      const textos = ['nome', 'nome_marca', 'telefone', 'instagram', 'texto_apresentacao', 'apresentacao_titulo', 'apresentacao_subtitulo', 'cor_primaria', 'cor_secundaria', 'cor_fundo', 'condicoes_pagamento', 'formas_pagamento'];
       const numeros = ['valor_hora', 'margem_padrao_pct', 'taxa_maquininha_pct', 'imposto_pct', 'sobra_por_fio_cm', 'ponta_cm', 'acabamento_gancho_m', 'arredondar_para', 'validade_proposta_dias', 'custos_fixos_mes', 'prolabore_desejado', 'horas_mes', 'sinal_pct', 'esp_min_padrao', 'esp_max_padrao', 'margem_vao_cm'];
       const dados = {};
       textos.forEach((k) => { dados[k] = (d.get(k) || '').trim() || null; });
@@ -425,7 +439,7 @@
 
     const enviarImagem = async (arquivo, pasta, campoPerfil) => {
       if (!arquivo) return;
-      if (arquivo.size > 5 * 1024 * 1024) { toast('A imagem precisa ter até 5 MB.', true); return; }
+      if (arquivo.size > 8 * 1024 * 1024) { toast('A imagem precisa ter até 8 MB.', true); return; }
       const ext = (arquivo.name.split('.').pop() || 'png').toLowerCase();
       const caminho = `${p.id}/${campoPerfil}-${Date.now()}.${ext}`;
       const up = await sb.storage.from(pasta).upload(caminho, arquivo, { upsert: true, contentType: arquivo.type });
@@ -439,6 +453,7 @@
     };
     document.getElementById('arq-logo').addEventListener('change', (ev) => enviarImagem(ev.target.files[0], 'marca', 'logo_url'));
     document.getElementById('arq-assinatura').addEventListener('change', (ev) => enviarImagem(ev.target.files[0], 'marca', 'assinatura_url'));
+    area().querySelectorAll('[data-img-campo]').forEach((el) => el.addEventListener('change', (ev) => enviarImagem(ev.target.files[0], 'marca', el.dataset.imgCampo)));
 
     document.getElementById('arq-fotos').addEventListener('change', async (ev) => {
       const arquivos = Array.from(ev.target.files || []);

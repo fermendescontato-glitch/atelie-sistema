@@ -351,7 +351,7 @@
           ${campo('Nome do projeto', `<input id="pj-nome" value="${esc(pj.nome)}" placeholder="Ex.: Guarda-corpo beliche Flávia">`, '', 'Um nome para você achar o projeto depois. O cliente não vê.')}
         </div>
         <div style="margin-top:14px">${campo('Descrição', `<textarea id="pj-desc" rows="3" placeholder="Detalhes, pedidos do cliente, ideias, cores...">${esc(pj.descricao_livre)}</textarea>`, '', 'Tudo o que não couber nas perguntas: referências, cores, onde a peça vai ficar.')}</div>
-        <div style="margin-top:14px" class="campo"><label>Fotos e referências${App.dica('Fotos do local, do rascunho ou de peças parecidas. A primeira foto aparece na proposta.')}</label>
+        <div style="margin-top:14px" class="campo"><label>Fotos e referências${App.dica('Na proposta, a 1ª foto aparece grande (ex.: projeto da marcenaria ou 3D) e a 2ª aparece menor, como referência da trama.')}</label>
           <div><input type="file" id="pj-fotos" accept="image/*" multiple class="sr-only"><label for="pj-fotos" class="botao sec peq">Adicionar fotos</label></div>
           <div class="miniaturas" id="pj-miniaturas"></div>
         </div>
@@ -391,8 +391,10 @@
       const refs = pj.referencias || [];
       if (!refs.length) { caixa.innerHTML = ''; return; }
       const { data } = await sb.storage.from('referencias').createSignedUrls(refs.map((r) => r.path), 3600);
-      caixa.innerHTML = refs.map((r, i) => `<div class="foto"><img src="${esc(((data || [])[i] || {}).signedUrl || '')}" alt="Referência ${i + 1}"><button type="button" data-tirar="${i}">Remover</button></div>`).join('');
+      caixa.innerHTML = refs.map((r, i) => `<div style="width:140px"><div class="foto" style="width:140px"><img src="${esc(((data || [])[i] || {}).signedUrl || '')}" alt="Referência ${i + 1}"><button type="button" data-tirar="${i}">Remover</button></div>
+        <input data-leg="${i}" value="${esc(r.legenda || '')}" placeholder="${i === 0 ? 'Legenda (foto principal)' : i === 1 ? 'Legenda (referência)' : 'Legenda'}" style="width:100%;margin-top:4px;border:1px solid #cfc4b2;border-radius:6px;padding:5px 7px;font-size:12px"></div>`).join('');
       caixa.querySelectorAll('[data-tirar]').forEach((b) => b.addEventListener('click', () => { pj.referencias.splice(Number(b.dataset.tirar), 1); ed.alterado = true; desenhar(); }));
+      caixa.querySelectorAll('[data-leg]').forEach((inp) => inp.addEventListener('input', () => { pj.referencias[Number(inp.dataset.leg)].legenda = inp.value; ed.alterado = true; }));
     };
     document.getElementById('pj-fotos').addEventListener('change', async (ev) => {
       const uid = estado.sessao.user.id;
