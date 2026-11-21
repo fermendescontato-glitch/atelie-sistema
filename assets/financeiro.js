@@ -71,6 +71,8 @@
     });
   }
   App.formReceber = formReceber;
+  App.taxaDe = taxaDe;
+  App.atualizarStatusVenda = atualizarStatusVenda;
 
   /* =================================================================
      Venda criada a partir da proposta aceita
@@ -138,11 +140,13 @@
      ================================================================= */
   App.paginas.venda = async function () {
     const id = location.hash.replace(/^#\/?/, '').split('/')[1];
-    const [cli, pj] = await Promise.all([
+    const [cli, pj, pc] = await Promise.all([
       sb.from('clientes').select('id, nome').eq('ativo', true).order('nome'),
-      sb.from('projetos').select('id, nome, precificacoes(preco_final)').not('status', 'in', '(arquivado,em_criacao)').order('atualizado_em', { ascending: false })
+      sb.from('projetos').select('id, nome, precificacoes(preco_final)').not('status', 'in', '(arquivado,em_criacao)').order('atualizado_em', { ascending: false }),
+      sb.from('pecas').select('id, nome, variacao, preco_venda, quantidade').eq('ativo', true).order('nome')
     ]);
     const clientes = cli.data || [], projetos = pj.data || [];
+    estado.pecasVenda = pc.data || [];
     let ed;
     if (id === 'nova') ed = { venda: { data: hojeISO(), status: 'aberta', cliente_id: null, descricao: '' }, itens: [{ descricao: '', quantidade: 1, valor_unitario: 0 }], recs: [] };
     else {
@@ -178,7 +182,8 @@
         <div id="v-itens"></div>
         <div class="add-comp">
           <button type="button" class="botao sec peq" id="add-item">+ Item</button>
-          <select id="add-proj" style="min-width:240px;border:1px solid #cfc4b2;border-radius:8px;padding:8px 10px"><option value="">Adicionar de um projeto...</option>${projetos.map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join('')}</select>
+          <select id="add-peca" style="min-width:220px;border:1px solid #cfc4b2;border-radius:8px;padding:8px 10px"><option value="">Peça do estoque...</option>${(estado.pecasVenda || []).map((x) => `<option value="${x.id}">${esc(x.nome + (x.variacao ? ' · ' + x.variacao : ''))} (${numero(x.quantidade, 0)})</option>`).join('')}</select>
+          <select id="add-proj" style="min-width:220px;border:1px solid #cfc4b2;border-radius:8px;padding:8px 10px"><option value="">Projeto sob medida...</option>${projetos.map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join('')}</select>
           <div style="margin-left:auto;font-size:18px;font-weight:900;color:var(--terracota)" id="v-total"></div>
         </div>
       </section>
@@ -237,6 +242,13 @@
     document.getElementById('v-data').addEventListener('input', (e) => { v.data = e.target.value; });
     document.getElementById('v-desc').addEventListener('input', (e) => { v.descricao = e.target.value; });
     document.getElementById('add-item').addEventListener('click', () => { ed.itens.push({ descricao: '', quantidade: 1, valor_unitario: 0 }); desenharItens(); });
+    document.getElementById('add-peca').addEventListener('change', (e) => {
+      const p = (estado.pecasVenda || []).find((x) => x.id === e.target.value);
+      if (!p) return;
+      ed.itens = ed.itens.filter((i) => i.descricao || Number(i.valor_unitario));
+      ed.itens.push({ peca_id: p.id, descricao: p.nome + (p.variacao ? ' · ' + p.variacao : ''), quantidade: 1, valor_unitario: Number(p.preco_venda) || 0 });
+      e.target.value = ''; desenharItens(); atTotal();
+    });
     document.getElementById('add-proj').addEventListener('change', (e) => {
       const p = projetos.find((x) => x.id === e.target.value);
       if (!p) return;
@@ -268,8 +280,12 @@
         if (id) { const r = await sb.from('vendas').update(dados).eq('id', id); if (r.error) throw r.error; }
         else { const r = await sb.from('vendas').insert(dados).select('id').single(); if (r.error) throw r.error; id = r.data.id; v.id = id; }
         await sb.from('venda_itens').delete().eq('venda_id', id);
-        const itens = ed.itens.filter((i) => i.descricao || Number(i.valor_unitario)).map((i) => ({ venda_id: id, projeto_id: i.projeto_id || null, descricao: i.descricao || null, quantidade: Number(i.quantidade) || 1, valor_unitario: Number(i.valor_unitario) || 0 }));
+        const itens = ed.itens.filter((i) => i.descricao || Number(i.valor_unitario)).map((i) => ({ venda_id: id, projeto_id: i.projeto_id || null, peca_id: i.peca_id || null, descricao: i.descricao || null, quantidade: Number(i.quantidade) || 1, valor_unitario: Number(i.valor_unitario) || 0 }));
         if (itens.length) { const r = await sb.from('venda_itens').insert(itens); if (r.error) throw r.error; }
+        // baixa no estoque das peças prontas: refaz os movimentos desta venda
+        await sb.from('movimentos_pecas').delete().eq('venda_id', id).eq('tipo', 'venda');
+        const movs = itens.filter((i) => i.peca_id).map((i) => ({ peca_id: i.peca_id, tipo: 'venda', quantidade: -Math.abs(Number(i.quantidade) || 1), venda_id: id }));
+        if (movs.length && v.status !== 'cancelada') { const r = await sb.from('movimentos_pecas').insert(movs); if (r.error) throw r.error; }
         // parcelas pendentes: regrava todas; recebidas ficam como estão
         await sb.from('recebimentos').delete().eq('venda_id', id).eq('status', 'pendente');
         const pend = ed.recs.filter((r) => r.status !== 'recebido').map((r, i) => ({ venda_id: id, numero: i + 1 + pendentesFora().length, descricao: r.descricao || null, vencimento: r.vencimento || null, valor: Number(r.valor) || 0 }));
@@ -287,7 +303,8 @@
       if (!confirm('Cancelar esta venda? As parcelas a receber deixam de contar.')) return;
       await sb.from('vendas').update({ status: 'cancelada' }).eq('id', v.id);
       await sb.from('recebimentos').delete().eq('venda_id', v.id).eq('status', 'pendente');
-      toast('Venda cancelada.'); location.hash = '#/vendas';
+      await sb.from('movimentos_pecas').delete().eq('venda_id', v.id);
+      toast('Venda cancelada. As peças voltaram para o estoque.'); location.hash = '#/vendas';
     });
   }
 

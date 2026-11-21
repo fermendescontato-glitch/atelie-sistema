@@ -74,6 +74,7 @@
       </form>`;
     const fechar = () => fundo.remove();
     fundo.addEventListener('click', (ev) => { if (ev.target === fundo) fechar(); });
+    fundo.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fechar(); });
     fundo.querySelector('[data-fechar]').addEventListener('click', fechar);
     const form = fundo.querySelector('form');
     const caixaErro = fundo.querySelector('.erro-msg');
@@ -165,12 +166,14 @@
     { rota: 'inicio', rotulo: 'Início' },
     { rota: 'assistente', rotulo: 'Nath · assistente' },
     { rota: 'projetos', rotulo: 'Projetos', tambem: ['projeto'] },
+    { rota: 'pecas', rotulo: 'Peças prontas' },
     { rota: 'propostas', rotulo: 'Propostas', tambem: ['proposta'] },
     { rota: 'vendas', rotulo: 'Vendas', tambem: ['venda'] },
     { rota: 'financeiro', rotulo: 'Financeiro' },
     { rota: 'clientes', rotulo: 'Clientes' },
     { rota: 'biblioteca', rotulo: 'Biblioteca' },
-    { rota: 'configuracoes', rotulo: 'Configurações' }
+    { rota: 'configuracoes', rotulo: 'Configurações' },
+    { rota: 'insights', rotulo: 'Insights da Nath', admin: true }
   ];
 
   function rotaAtual() { return (location.hash.replace(/^#\/?/, '') || 'inicio').split('/')[0]; }
@@ -183,7 +186,7 @@
       <div class="shell">
         <nav class="menu" aria-label="Menu principal">
           <div class="marca">ATELIÊ<strong>${esc(p.nome_marca || 'Meu ateliê')}</strong></div>
-          ${MENU.map((m) => `<a href="#/${m.rota}" class="${m.rota === atual || (m.tambem || []).includes(atual) ? 'ativo' : ''}">${esc(m.rotulo)}${m.breve ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('')}
+          ${MENU.filter((m) => !m.admin || ehAdmin()).map((m) => `<a href="#/${m.rota}" class="${m.rota === atual || (m.tambem || []).includes(atual) ? 'ativo' : ''}">${esc(m.rotulo)}${m.breve ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('')}
           <div class="rodape">
             ${esc(p.nome || p.email || '')}${ehAdmin() ? ' · admin' : ''}<br>
             <button type="button" id="sair">Sair</button>
@@ -206,11 +209,13 @@
     const p = estado.perfil || {};
     const hoje = new Date();
     const mesIni = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
-    const [mat, pj, rec] = await Promise.all([
+    const [mat, pj, rec, pc] = await Promise.all([
       sb.from('materiais').select('id, estoque_atual, estoque_minimo').eq('ativo', true),
       sb.from('projetos').select('id, status'),
-      sb.from('recebimentos').select('valor, valor_liquido, status, recebido_em')
+      sb.from('recebimentos').select('valor, valor_liquido, status, recebido_em'),
+      sb.from('pecas').select('quantidade').eq('ativo', true)
     ]);
+    const pecasEstoque = (pc.data || []).reduce((s, x) => s + Math.max(0, Number(x.quantidade || 0)), 0);
     const materiais = mat.data || [];
     const projetos = pj.data || [];
     const recs = rec.data || [];
@@ -235,6 +240,7 @@
         <div class="indicador"><div class="rot">Em proposta</div><div class="val">${projetos.filter((x) => x.status === 'em_proposta').length}</div></div>
         <div class="indicador"><div class="rot">Recebido no mês</div><div class="val" style="font-size:20px">${moeda(recebidoMes)}</div></div>
         <div class="indicador"><div class="rot">A receber</div><div class="val" style="font-size:20px">${moeda(aReceber)}</div></div>
+        <div class="indicador"><div class="rot">Peças prontas</div><div class="val">${numero(pecasEstoque, 0)}</div></div>
         <div class="indicador"><div class="rot">Insumos acabando</div><div class="val">${acabando}</div></div>
       </div>`;
   }
@@ -930,7 +936,7 @@
     telaShell();
   }
 
-  window.addEventListener('hashchange', () => { if (estado.sessao) telaShell(); });
+  window.addEventListener('hashchange', () => { document.querySelectorAll('.fundo-modal').forEach((m) => m.remove()); if (estado.sessao) telaShell(); });
 
   sb.auth.getSession().then(({ data }) => aoMudarSessao(data.session)).catch((e) => { console.error(e); telaLogin(); });
   sb.auth.onAuthStateChange((evento, sessao) => {

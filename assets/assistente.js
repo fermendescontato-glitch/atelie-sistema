@@ -99,6 +99,29 @@
     } catch (e) { return JSON.stringify({ erro: App.traduzErro(e) }); }
   }
 
+  /* ---------------- Observações para melhorar o sistema ---------------- */
+  const RX_OBS = /<obs\s+tipo="([^"]*)"(?:\s+tema="([^"]*)")?\s*>([\s\S]*?)<\/obs>/g;
+  const TIPOS_OBS = ['pedido_nao_atendido', 'duvida_frequente', 'dificuldade', 'sugestao', 'tipo_de_peca'];
+  function extrairObs(content) {
+    const obs = [];
+    (content || []).forEach((b) => { if (b.type === 'text') for (const m of b.text.matchAll(RX_OBS)) if (TIPOS_OBS.includes(m[1])) obs.push({ tipo: m[1], tema: (m[2] || '').slice(0, 80) || null, descricao: m[3].trim().slice(0, 600) }); });
+    return obs;
+  }
+  const semObs = (t) => String(t || '').replace(RX_OBS, '').trim();
+
+  async function avaliar(idxMsg, nota, botao) {
+    const m = conv.mensagens[idxMsg];
+    const texto = ((m && m.content) || []).filter((b) => b.type === 'text').map((b) => semObs(b.text)).join('\n').slice(0, 800);
+    let comentario = null;
+    if (nota < 0) comentario = prompt('O que faltou ou ficou errado nessa resposta? (opcional)') || null;
+    const r = await sb.from('ia_feedback').insert({ conversa_id: conv.id, nota, resposta: texto, comentario });
+    if (r.error) return App.erro(r.error);
+    conv.avaliadas = conv.avaliadas || {};
+    conv.avaliadas[idxMsg] = nota;
+    toast(nota > 0 ? 'Obrigada! Isso ajuda a Nath a melhorar.' : 'Anotado. Vamos melhorar essa resposta.');
+    desenharConversa();
+  }
+
   /* ---------------- Conversa ---------------- */
   async function enviar() {
     if (conv.ocupado) return;
@@ -114,6 +137,7 @@
         }
         conv.uso = data.uso;
         conv.mensagens.push({ role: 'assistant', content: data.content });
+        conv.obsPendentes = [...(conv.obsPendentes || []), ...extrairObs(data.content)];
         const usos = (data.content || []).filter((b) => b.type === 'tool_use');
         if (data.stop_reason !== 'tool_use' || !usos.length) break;
         const resultados = [];
@@ -126,6 +150,11 @@
         conv.mensagens.push({ role: 'user', content: resultados });
       }
       await guardar();
+      if (conv.obsPendentes && conv.obsPendentes.length) {
+        const linhas = conv.obsPendentes.map((o) => ({ ...o, conversa_id: conv.id }));
+        conv.obsPendentes = [];
+        sb.from('ia_insights').insert(linhas).then(() => {});
+      }
     } catch (e) {
       toast(e.message, true);
       const ult = conv.mensagens[conv.mensagens.length - 1];
@@ -213,7 +242,11 @@
           if (r && r.respostas) out.push(`<div class="bolha eu">${Object.entries(r.respostas).filter(([, v]) => v !== '' && v !== null).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <strong>${esc(v)}</strong>`).join('<br>')}${r.observacao ? '<br>' + esc(r.observacao) : ''}</div>`);
           else if (!r && b.content && !/^A artesã respondeu/.test(b.content)) out.push(`<div class="bolha eu">${esc(b.content)}</div>`);
         }
-        if (m.role === 'assistant' && b.type === 'text' && b.text.trim()) out.push(`<div class="bolha ela">${formatar(b.text)}</div>`);
+        if (m.role === 'assistant' && b.type === 'text' && semObs(b.text)) {
+          const ultimoTexto = blocos.filter((x) => x.type === 'text' && semObs(x.text)).pop() === b;
+          const av = (conv.avaliadas || {})[mi];
+          out.push(`<div class="bolha ela">${formatar(semObs(b.text))}${ultimoTexto ? `<div class="avaliar"><button type="button" data-av="${mi}" data-nota="1" class="${av === 1 ? 'marcado' : ''}" aria-label="Resposta boa" ${av ? 'disabled' : ''}>👍</button><button type="button" data-av="${mi}" data-nota="-1" class="${av === -1 ? 'marcado' : ''}" aria-label="Resposta ruim" ${av ? 'disabled' : ''}>👎</button></div>` : ''}</div>`);
+        }
         if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'pedir_informacoes') out.push(htmlFormulario(b, conv.pendentes && conv.pendentes.formulario.id === b.id && !conv.ocupado));
         if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'calcular') out.push('<div class="bolha sistema">Calculando com a calculadora do sistema...</div>');
         if (m.role === 'assistant' && b.type === 'tool_use' && b.name === 'conta') out.push(`<div class="bolha sistema">Conta exata: ${esc(b.input.expressao || '')}</div>`);
@@ -248,6 +281,7 @@
         responder('', [], respostas);
       });
     });
+    caixa.querySelectorAll('[data-av]').forEach((bt) => bt.addEventListener('click', () => avaliar(Number(bt.dataset.av), Number(bt.dataset.nota), bt)));
     caixa.scrollTop = caixa.scrollHeight;
     const u = document.getElementById('uso-ia');
     if (u && conv.uso) u.textContent = `${conv.uso.mensagens} de ${conv.uso.limite} mensagens neste mês`;
@@ -281,6 +315,7 @@
             <textarea id="txt-chat" placeholder="Escreva aqui... (Enter envia, Shift+Enter quebra linha)"></textarea>
             <button type="button" class="botao" id="bt-enviar">Enviar</button>
           </div>
+          <p class="ajuda" style="font-size:12px;color:var(--texto-2);margin:8px 0 0">Suas conversas ajudam a melhorar a Nath e o sistema. Seus dados e os dos seus clientes nunca são mostrados para outras artesãs.</p>
         </div>
         <aside class="card" style="padding:16px"><h3>Conversas</h3>
           <div class="linhas" style="margin-top:8px">${(antigas || []).map((c) => `<a href="#" data-conv="${c.id}" style="display:block;padding:6px 0;border-bottom:1px solid var(--linha);text-decoration:none">${esc(c.titulo || 'Conversa')}<br><span style="font-size:12px;color:var(--texto-2)">${new Date(c.atualizado_em).toLocaleDateString('pt-BR')}</span></a>`).join('') || '<span style="color:var(--texto-2);font-size:13px">Nenhuma ainda.</span>'}</div>
@@ -298,7 +333,7 @@
       ev.target.value = '';
       document.getElementById('anexos').innerHTML = anexos.map((a) => `<div class="foto"><img src="data:image/jpeg;base64,${a.source.data}"></div>`).join('');
     });
-    document.getElementById('bt-nova-conv').addEventListener('click', () => { Object.assign(conv, { id: null, mensagens: [], pendentes: null, ultimoProjeto: null }); desenharConversa(); });
+    document.getElementById('bt-nova-conv').addEventListener('click', () => { Object.assign(conv, { id: null, mensagens: [], pendentes: null, ultimoProjeto: null, avaliadas: {} }); desenharConversa(); });
     area().querySelectorAll('[data-conv]').forEach((a) => a.addEventListener('click', async (ev) => {
       ev.preventDefault();
       const { data } = await sb.from('ia_conversas').select('*').eq('id', a.dataset.conv).single();

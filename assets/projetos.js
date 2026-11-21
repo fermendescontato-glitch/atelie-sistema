@@ -255,6 +255,7 @@
         <div class="acoes" style="margin:0;align-items:center">
           ${concluido ? `<select id="pj-status" style="border:1px solid #cfc4b2;border-radius:8px;padding:9px 10px">${opcoes(Object.fromEntries(Object.entries(STATUS).filter(([k]) => k !== 'em_criacao')), pj.status)}</select>
             <button type="button" class="botao texto" id="bt-versao">Nova versão</button>
+            <button type="button" class="botao texto" id="bt-peca" title="Cadastrar em Peças prontas, com custo e preço deste projeto">Virar peça pronta</button>
             <button type="button" class="botao sec" id="bt-proposta">Criar proposta</button>
             <button type="button" class="botao" id="bt-salvar">Salvar</button>`
           : `<button type="button" class="botao texto" id="bt-sair">Salvar e sair</button>`}
@@ -310,6 +311,11 @@
       document.getElementById('pj-status').addEventListener('change', (ev) => { pj.status = ev.target.value; ed.alterado = true; });
       document.getElementById('bt-salvar').addEventListener('click', async () => { if (await salvar(ed, ctx, false, 5)) renderEditor(ed, ctx); });
       document.getElementById('bt-versao').addEventListener('click', () => novaVersao(ed, ctx));
+      document.getElementById('bt-peca').addEventListener('click', async () => {
+        if (ed.alterado && !(await salvar(ed, ctx, true, 5))) return;
+        const calc = window.Calc.calcularProjeto(ed.componentes, ctx);
+        App.novaPecaDoProjeto(pj, window.Calc.calcularPreco({ ...ed.preco, custo_material: calc.custo_material }));
+      });
       document.getElementById('bt-proposta').addEventListener('click', async () => {
         if (ed.alterado && !(await salvar(ed, ctx, true, 5))) return;
         location.hash = '#/proposta/nova/' + pj.id;
