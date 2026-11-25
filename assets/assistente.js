@@ -14,7 +14,7 @@
 
   function contextoTexto(ctx) {
     const p = ctx.perfil || {};
-    const nomeMat = (m) => [App.nomeTipo(m.tipo_material_id), m.espessura_mm ? m.espessura_mm + ' mm' : '', m.cor, m.marca].filter(Boolean).join(' ');
+    const nomeMat = (m) => App.nomeMaterial(m);
     const L = [];
     L.push(`Configurações: hora R$ ${p.valor_hora || 0}; margem ${p.margem_padrao_pct || 0}%; taxa ${p.taxa_maquininha_pct || 0}%; imposto ${p.imposto_pct || 0}%; sobra por fio ${p.sobra_por_fio_cm ?? 10} cm; ganchos: espaço ${p.esp_min_padrao ?? 9} a ${p.esp_max_padrao ?? 10} cm, margem ${p.margem_vao_cm ?? 2.5} cm, ponta ${p.ponta_cm ?? 20} cm, acabamento ${p.acabamento_gancho_m ?? 1} m por gancho.`);
     L.push('Materiais (id | descrição | unidade | custo por unidade):');

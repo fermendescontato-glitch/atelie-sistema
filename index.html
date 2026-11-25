@@ -20,6 +20,7 @@
   <script src="assets/financeiro.js"></script>
   <script src="assets/pecas.js"></script>
   <script src="assets/insights.js"></script>
+  <script src="assets/notas.js"></script>
   <script src="assets/assistente.js"></script>
   <script>
     // Diagnóstico: se algum arquivo não carregou, mostra o motivo em vez de tela em branco.
@@ -35,6 +36,7 @@
       if (!window.App || !window.App.paginas.financeiro) faltando.push('assets/financeiro.js');
       if (!window.App || !window.App.paginas.pecas) faltando.push('assets/pecas.js');
       if (!window.App || !window.App.paginas.insights) faltando.push('assets/insights.js');
+      if (!window.App || !window.App.paginas.nota) faltando.push('assets/notas.js');
       if (!faltando.length) return;
       document.getElementById('app').innerHTML =
         '<div style="max-width:560px;margin:60px auto;padding:24px;font-family:sans-serif;background:#fcebeb;color:#a32d2d;border-radius:10px">' +

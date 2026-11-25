@@ -74,7 +74,7 @@
       </form>`;
     const fechar = () => fundo.remove();
     fundo.addEventListener('click', (ev) => { if (ev.target === fundo) fechar(); });
-    fundo.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') fechar(); });
+
     fundo.querySelector('[data-fechar]').addEventListener('click', fechar);
     const form = fundo.querySelector('form');
     const caixaErro = fundo.querySelector('.erro-msg');
@@ -171,7 +171,7 @@
     { rota: 'vendas', rotulo: 'Vendas', tambem: ['venda'] },
     { rota: 'financeiro', rotulo: 'Financeiro' },
     { rota: 'clientes', rotulo: 'Clientes' },
-    { rota: 'biblioteca', rotulo: 'Biblioteca' },
+    { rota: 'biblioteca', rotulo: 'Biblioteca', tambem: ['nota'] },
     { rota: 'configuracoes', rotulo: 'Configurações' },
     { rota: 'insights', rotulo: 'Insights da Nath', admin: true }
   ];
@@ -493,7 +493,7 @@
      Biblioteca
      --------------------------------------------------------------- */
   async function paginaBiblioteca() {
-    const abas = { materiais: 'Materiais', tramas: 'Tramas', nos: 'Nós', categorias: 'Categorias' };
+    const abas = { materiais: 'Materiais', tipos: 'Tipos de material', tramas: 'Tramas', nos: 'Nós', categorias: 'Categorias' };
     area().innerHTML = `
       <div class="cabecalho">
         <div><h1>Biblioteca</h1><p>Seus materiais com preço e as regras de consumo usadas nos cálculos.</p></div>
@@ -507,13 +507,14 @@
       <div id="aba-conteudo"><div class="carregando">Carregando...</div></div>`;
     area().querySelectorAll('[data-aba]').forEach((b) => b.addEventListener('click', () => { estado.abaBiblioteca = b.dataset.aba; paginaBiblioteca().catch(erro); }));
     document.getElementById('ver-inativos').addEventListener('change', (ev) => { estado.mostrarInativos = ev.target.checked; paginaBiblioteca().catch(erro); });
-    const fn = { materiais: abaMateriais, tramas: abaTramas, nos: abaNos, categorias: abaCategorias }[estado.abaBiblioteca];
+    const fn = { materiais: abaMateriais, tipos: abaTipos, tramas: abaTramas, nos: abaNos, categorias: abaCategorias }[estado.abaBiblioteca];
     await fn(document.getElementById('aba-conteudo'));
   }
 
   const filtrarAtivos = (q) => (estado.mostrarInativos ? q : q.eq('ativo', true));
+  const nomeMaterial = (m) => (m ? [nomeTipo(m.tipo_material_id), m.descricao, m.espessura_mm ? numero(m.espessura_mm) + ' mm' : '', m.cor, m.marca].filter(Boolean).join(' · ') : '');
   const nomeTipo = (id) => (estado.tiposMaterial.find((t) => t.id === id) || {}).nome || '';
-  const seloOrigem = (r) => (r.artesa_id ? '<span class="selo">Meu</span>' : '<span class="selo base">Base</span>');
+  const seloOrigem = (r) => (r.artesa_id && r.artesa_id === estado.sessao.user.id ? '<span class="selo">Meu</span>' : '<span class="selo base">Base</span>');
   const botaoAtivo = (tabela, r) => `<button type="button" class="botao texto peq" data-alternar="${tabela}" data-id="${r.id}" data-ativo="${r.ativo}">${r.ativo ? 'Desativar' : 'Reativar'}</button>`;
 
   function ligarAlternar(raiz, recarregar) {
@@ -535,7 +536,7 @@
     raiz.innerHTML = `
       <div class="acoes" style="margin:0 0 14px;justify-content:space-between;align-items:center">
         <span style="color:var(--texto-2);font-size:14px">Cada especificação (marca, espessura, cor) é um item com o seu preço.</span>
-        <button type="button" class="botao" id="novo-material">+ Novo material</button>
+        <div class="acoes" style="margin:0"><a class="botao sec" href="#/nota/nova">Importar nota de compra</a><button type="button" class="botao" id="novo-material">+ Novo material</button></div>
       </div>
       ${lista.length ? `<div class="tabela-rolagem"><table class="lista">
         <thead><tr><th>Material</th><th>Espessura</th><th>Cor</th><th>Compra</th><th class="num">Custo</th><th class="num">Estoque</th><th></th></tr></thead>
@@ -550,6 +551,7 @@
             <td style="white-space:nowrap"><button type="button" class="botao texto peq" data-editar="${m.id}">Editar</button>${botaoAtivo('materiais', m)}</td>
           </tr>`).join('')}</tbody></table></div>`
         : '<div class="vazio">Nenhum material ainda. Cadastre as cordas, fios e acessórios que você usa, com o preço que paga.</div>'}`;
+    if (!document.getElementById('novo-material')) return;
     document.getElementById('novo-material').addEventListener('click', () => formMaterial(null, recarregar));
     raiz.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => formMaterial(lista.find((x) => x.id === b.dataset.editar), recarregar)));
     ligarAlternar(raiz, recarregar);
@@ -561,7 +563,7 @@
       titulo: m.id ? 'Editar material' : 'Novo material',
       corpo: `
         <div class="grade g2">
-          ${campo('Tipo', `<select name="tipo_material_id" required><option value="">Escolha...</option>${opcoesLista(estado.tiposMaterial, m.tipo_material_id)}</select>`, 'Não achou o tipo? Peça ao administrador para incluir.')}
+          ${campo('Tipo', `<select name="tipo_material_id" required data-add-tabela="tipos_material"><option value="">Escolha...</option>${opcoesLista(estado.tiposMaterial, m.tipo_material_id)}${opcaoAdicionar()}</select>`, 'Não achou? Use "+ Adicionar novo" no fim da lista.')}
           ${campo('Marca', entrada('marca', m.marca))}
           ${campo('Descrição', entrada('descricao', m.descricao, 'placeholder="Ex.: trançado, encerado..."'))}
           ${campo('Cor', entrada('cor', m.cor))}
@@ -619,10 +621,10 @@
           estoque_atual: valorNum(d.get('estoque_atual')) ?? 0,
           estoque_minimo: valorNum(d.get('estoque_minimo')) ?? 0
         };
-        const r = m.id ? await sb.from('materiais').update(dados).eq('id', m.id) : await sb.from('materiais').insert(dados);
+        const r = m.id ? await sb.from('materiais').update(dados).eq('id', m.id).select().single() : await sb.from('materiais').insert(dados).select().single();
         if (r.error) throw r.error;
         toast('Material salvo.');
-        recarregar();
+        recarregar(r.data);
       }
     });
   }
@@ -671,7 +673,7 @@
       corpo: `
         <div class="grade g2">
           ${campo('Nome da trama', entrada('nome', t.nome, 'required placeholder="Ex.: Trama X"'))}
-          ${campo('Material', `<select name="tipo_material_id" required><option value="">Escolha...</option>${opcoesLista(fios, t.tipo_material_id)}</select>`)}
+          ${campo('Material', `<select name="tipo_material_id" required data-add-tabela="tipos_material" data-add-grupo="fio"><option value="">Escolha...</option>${opcoesLista(fios, t.tipo_material_id)}${opcaoAdicionar()}</select>`)}
           ${campo('Espessura', numeroCom('espessura_mm', t.espessura_mm, 'mm', 'min="0" required'))}
         </div>
         <h3 style="margin:20px 0 10px">Medidas da trama</h3>
@@ -754,8 +756,8 @@
       titulo: c.id ? 'Editar consumo do nó' : 'Novo consumo de nó',
       corpo: `
         <div class="grade g2">
-          ${campo('Nó', `<select name="no_id" required><option value="">Escolha...</option>${opcoesLista(estado.nos, c.no_id)}</select>`)}
-          ${campo('Material', `<select name="tipo_material_id" required><option value="">Escolha...</option>${opcoesLista(fios, c.tipo_material_id)}</select>`)}
+          ${campo('Nó', `<select name="no_id" required data-add-tabela="nos"><option value="">Escolha...</option>${opcoesLista(estado.nos, c.no_id)}${opcaoAdicionar()}</select>`)}
+          ${campo('Material', `<select name="tipo_material_id" required data-add-tabela="tipos_material" data-add-grupo="fio"><option value="">Escolha...</option>${opcoesLista(fios, c.tipo_material_id)}${opcaoAdicionar()}</select>`)}
           ${campo('Espessura', numeroCom('espessura_mm', c.espessura_mm, 'mm', 'min="0" required'))}
           ${campo('Cada nó gasta', numeroCom('consumo_cm', c.consumo_cm, 'cm de fio', 'min="0" required'))}
         </div>`,
@@ -768,6 +770,38 @@
         recarregar();
       }
     });
+  }
+
+  /* ---- Tipos de material ---- */
+  async function abaTipos(raiz) {
+    const { data, error } = await filtrarAtivos(sb.from('tipos_material').select('*').order('grupo').order('nome'));
+    if (error) throw error;
+    const lista = data || [];
+    const recarregar = async () => { const t = await sb.from('tipos_material').select('*').eq('ativo', true).order('nome'); estado.tiposMaterial = t.data || []; abaTipos(raiz).catch(erro); };
+    const GRUPOS = { fio: 'Fio ou corda', acessorio: 'Acessório', fixacao: 'Fixação' };
+    raiz.innerHTML = `
+      <div class="acoes" style="margin:0 0 14px;justify-content:space-between;align-items:center">
+        <span style="color:var(--texto-2);font-size:14px">Os tipos que aparecem na hora de cadastrar um material. Os seus ficam só para você.</span>
+        <button type="button" class="botao" id="novo-tipo">+ Novo tipo</button>
+      </div>
+      <div class="tabela-rolagem"><table class="lista">
+        <thead><tr><th>Tipo</th><th>Usado como</th><th>Origem</th><th></th></tr></thead>
+        <tbody>${lista.map((t) => `<tr class="${t.ativo ? '' : 'inativo'}"><td><strong>${esc(t.nome)}</strong></td><td>${esc(GRUPOS[t.grupo] || t.grupo)}</td><td>${seloOrigem(t)}</td>
+          <td style="white-space:nowrap">${ehMeu(t) || ehAdmin() ? `<button type="button" class="botao texto peq" data-editar="${t.id}">Editar</button>${botaoAtivo('tipos_material', t)}` : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    const form = (t) => abrirModal({
+      titulo: t ? 'Editar tipo' : 'Novo tipo de material',
+      corpo: `<div class="grade g2">${campo('Nome', entrada('nome', t && t.nome, 'required'))}${campo('Usado como', `<select name="grupo">${opcoes(GRUPOS, (t && t.grupo) || 'acessorio')}</select>`)}</div>`,
+      aoSalvar: async (d) => {
+        const dados = { nome: (d.get('nome') || '').trim(), grupo: d.get('grupo') };
+        if (!dados.nome) throw new Error('Informe o nome.');
+        const r = t ? await sb.from('tipos_material').update(dados).eq('id', t.id) : await sb.from('tipos_material').insert(dados);
+        if (r.error) throw /duplicate|unique/i.test(r.error.message) ? new Error('Já existe um tipo com esse nome.') : r.error;
+        toast('Tipo salvo.'); recarregar();
+      }
+    });
+    document.getElementById('novo-tipo').addEventListener('click', () => form(null));
+    raiz.querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => form(lista.find((x) => x.id === b.dataset.editar))));
+    ligarAlternar(raiz, recarregar);
   }
 
   /* ---- Categorias ---- */
@@ -921,9 +955,58 @@
   }
 
   /* ---------------------------------------------------------------
+     "+ Adicionar novo" dentro das listas suspensas
+     Uso: <select data-add-tabela="tipos_material" data-add-grupo="fio">...${opcaoAdicionar()}</select>
+     --------------------------------------------------------------- */
+  const opcaoAdicionar = (rotulo = '+ Adicionar novo...') => `<option value="__novo">${esc(rotulo)}</option>`;
+  const LISTAS = {
+    tipos_material: { titulo: 'Novo tipo de material', ajuda: 'Ex.: Pingente de coco, Fio de juta, Argola de metal.' },
+    nos: { titulo: 'Novo nó', ajuda: 'Depois cadastre quanto ele gasta em Biblioteca > Nós.' },
+    categorias: { titulo: 'Novo tipo de peça', ajuda: 'Ex.: Chaveiro, Cortina, Tapete.' },
+    categorias_financeiras: { titulo: 'Nova categoria de despesa', ajuda: 'Ex.: Aluguel da feira, Curso.' }
+  };
+  async function adicionarNaLista(sel) {
+    const tabela = sel.dataset.addTabela;
+    const cfgL = LISTAS[tabela];
+    const anterior = sel.dataset.valorAnterior || '';
+    sel.value = anterior;
+    if (!cfgL) return;
+    abrirModal({
+      titulo: cfgL.titulo,
+      corpo: `${campo('Nome', '<input name="nome" required>', cfgL.ajuda)}
+        ${tabela === 'tipos_material' ? `<div style="margin-top:12px">${campo('É usado como', `<select name="grupo">${opcoes({ fio: 'Fio ou corda (gasto em metros)', acessorio: 'Acessório (por unidade)', fixacao: 'Fixação (gancho, olhal)' }, sel.dataset.addGrupo || 'acessorio')}</select>`)}</div>` : ''}
+        ${tabela === 'categorias' ? `<div style="margin-top:12px">${campo('Perguntas do projeto', `<select name="familia">${opcoes(FAMILIAS, 'livre')}</select>`)}</div>` : ''}
+        <p class="ajuda" style="margin:12px 0 0;font-size:12px;color:var(--texto-2)">Fica salvo só para você.</p>`,
+      aoSalvar: async (d) => {
+        const nome = (d.get('nome') || '').trim();
+        if (!nome) throw new Error('Informe o nome.');
+        const dados = { nome };
+        if (tabela === 'tipos_material') dados.grupo = d.get('grupo');
+        if (tabela === 'categorias') { dados.familia = d.get('familia'); dados.modelo = 'ambos'; dados.ordem = 100; }
+        if (tabela === 'categorias_financeiras') { dados.tipo = sel.dataset.addTipo || 'despesa'; dados.ordem = 50; }
+        const r = await sb.from(tabela).insert(dados).select().single();
+        if (r.error) throw /duplicate|unique/i.test(r.error.message) ? new Error('Já existe um item com esse nome.') : r.error;
+        if (tabela === 'tipos_material') estado.tiposMaterial = [...estado.tiposMaterial, r.data].sort((a, b) => a.nome.localeCompare(b.nome));
+        if (tabela === 'nos') estado.nos = [...estado.nos, r.data].sort((a, b) => a.nome.localeCompare(b.nome));
+        const op = document.createElement('option');
+        op.value = r.data.id; op.textContent = r.data.nome;
+        sel.insertBefore(op, sel.querySelector('option[value="__novo"]'));
+        sel.value = r.data.id;
+        sel.dataset.valorAnterior = r.data.id;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        sel.dispatchEvent(new Event('input', { bubbles: true }));
+        toast(`"${r.data.nome}" adicionado.`);
+      }
+    });
+  }
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { const m = document.querySelectorAll('.fundo-modal'); if (m.length) m[m.length - 1].remove(); } });
+  document.addEventListener('focusin', (ev) => { const s = ev.target; if (s.tagName === 'SELECT' && s.dataset.addTabela) s.dataset.valorAnterior = s.value; });
+  document.addEventListener('change', (ev) => { const s = ev.target; if (s.tagName === 'SELECT' && s.value === '__novo') { ev.stopImmediatePropagation(); adicionarNaLista(s); } }, true);
+
+  /* ---------------------------------------------------------------
      Compartilhado com os outros módulos (projetos, propostas, assistente)
      --------------------------------------------------------------- */
-  Object.assign(App, { sb, estado, cfg, esc, moeda, numero, valorNum, toast, erro, traduzErro, abrirModal, campo, dica, entrada, numeroCom, opcoes, opcoesLista, area, ehAdmin, ehMeu, nomeTipo, telaShell, formCliente, TIPOS_TRAMA, MODELOS, FAMILIAS });
+  Object.assign(App, { sb, estado, cfg, esc, moeda, numero, valorNum, toast, erro, traduzErro, abrirModal, campo, dica, entrada, numeroCom, opcoes, opcoesLista, area, ehAdmin, ehMeu, nomeTipo, telaShell, formCliente, formMaterial, opcaoAdicionar, nomeMaterial, TIPOS_TRAMA, MODELOS, FAMILIAS });
 
   /* ---------------------------------------------------------------
      Inicialização

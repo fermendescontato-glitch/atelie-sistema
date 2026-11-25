@@ -385,7 +385,7 @@
       <div class="grade g2" style="margin-top:20px;align-items:start">
         <section class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2>Despesas do mês</h2>
-            <div class="acoes" style="margin:0"><button type="button" class="botao texto peq" id="bt-fixas">Despesas fixas</button><button type="button" class="botao sec peq" id="bt-prolabore">+ Pró-labore</button><button type="button" class="botao peq" id="bt-despesa">+ Despesa</button></div></div>
+            <div class="acoes" style="margin:0"><a class="botao texto peq" href="#/nota/nova">Nota de compra</a><button type="button" class="botao texto peq" id="bt-fixas">Despesas fixas</button><button type="button" class="botao sec peq" id="bt-prolabore">+ Pró-labore</button><button type="button" class="botao peq" id="bt-despesa">+ Despesa</button></div></div>
           ${atrasadas.length ? `<div class="aviso" style="margin-top:10px">${atrasadas.length} despesa(s) de meses anteriores ainda não paga(s): ${moeda(atrasadas.reduce((s, d) => s + Number(d.valor || 0), 0))}.</div>` : ''}
           ${despesas.length ? `<div class="linhas" style="margin-top:12px">${despesas.map((d) => `<div style="align-items:center;padding:6px 0;border-bottom:1px solid var(--linha)">
             <span>${esc(d.descricao)}<br><span style="font-size:12px;color:var(--texto-2);font-weight:400">${esc(catDe(d.categoria_id).nome || '')} · ${d.status === 'pago' ? 'pago em ' + dataBR(d.pago_em) : `<span class="${d.vencimento < hoje ? 'atrasado' : ''}">vence ${dataBR(d.vencimento)}</span>`}</span></span>
@@ -432,13 +432,13 @@
         ${retirada ? '<p class="ajuda" style="margin:0 0 12px;color:var(--texto-2)">Dinheiro que você tira do ateliê para você. Fica separado das despesas.</p>' : ''}
         <div class="grade g2">
           ${campo('Descrição', `<input name="descricao" value="${esc(d.descricao)}" required>`)}
-          ${retirada ? `<input type="hidden" name="categoria_id" value="${esc(d.categoria_id || '')}">` : campo('Categoria', `<select name="categoria_id"><option value="">Escolha...</option>${opcoesLista(categorias, d.categoria_id)}</select>`)}
+          ${retirada ? `<input type="hidden" name="categoria_id" value="${esc(d.categoria_id || '')}">` : campo('Categoria', `<select name="categoria_id" data-add-tabela="categorias_financeiras" data-add-tipo="despesa"><option value="">Escolha...</option>${opcoesLista(categorias, d.categoria_id)}${App.opcaoAdicionar()}</select>`)}
           ${campo('Valor', `<div class="com-sufixo"><input type="number" step="any" name="valor" value="${d.valor ?? ''}"><span>R$</span></div>`)}
           ${campo(retirada ? 'Data' : 'Vencimento', `<input type="date" name="vencimento" value="${esc(d.vencimento || hojeISO())}">`)}
         </div>
         ${retirada ? '<input type="hidden" name="pago" value="on">' : `<label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" name="pago" ${d.status === 'pago' ? 'checked' : ''}> Já paguei</label>`}
         ${!retirada && !d.id ? `<div id="bloco-material" style="margin-top:14px;display:none"><div class="grade g2">
-          ${campo('Material comprado', `<select name="material_id"><option value="">Não somar no estoque</option>${opcoesLista(materiais || [], null, (m) => [App.nomeTipo(m.tipo_material_id), m.espessura_mm ? m.espessura_mm + ' mm' : '', m.cor, m.marca].filter(Boolean).join(' · '))}</select>`, '', 'Escolha o material para somar a quantidade comprada no estoque.')}
+          ${campo('Material comprado', `<select name="material_id"><option value="">Não somar no estoque</option>${opcoesLista(materiais || [], null, App.nomeMaterial)}</select>`, '', 'Escolha o material para somar a quantidade comprada no estoque.')}
           ${campo('Quantidade comprada', `<input type="number" step="any" name="quantidade_material" placeholder="metros, gramas ou unidades">`)}
         </div></div>` : ''}`,
       aoAbrir: (form) => {

@@ -14,16 +14,13 @@
     trama: { rotulo: 'Trama', ajuda: 'Parte trançada da peça, calculada pela largura e comprimento.' },
     trecho_sem_trama: { rotulo: 'Trecho sem trama', ajuda: 'Parte do fio sem trançar: franja, alça, pendente.' },
     no: { rotulo: 'Nó', ajuda: 'Nós avulsos ou nós em cada fio de uma trama.' },
-    acessorio: { rotulo: 'Acessório', ajuda: 'Argola, alça de madeira, pingente, miçanga, gancho...' }
+    acessorio: { rotulo: 'Acessório', ajuda: 'Argola, alça de madeira, pingente, miçanga, gancho...' },
+    corte: { rotulo: 'Corte livre', ajuda: 'Quando você já sabe: tantos pedaços de tal tamanho.' }
   };
 
   /* ---------------- Utilidades ---------------- */
   const grupoDe = (tipoId) => (estado.tiposMaterial.find((t) => t.id === tipoId) || {}).grupo;
-  const nomeMaterial = (m) => {
-    if (!m) return '';
-    const tipo = App.nomeTipo(m.tipo_material_id);
-    return [tipo, m.espessura_mm ? numero(m.espessura_mm) + ' mm' : '', m.cor, m.marca].filter(Boolean).join(' · ');
-  };
+  const nomeMaterial = (m) => App.nomeMaterial(m);
   const un = (u, q) => (u === 'metro' ? 'm' : u === 'grama' ? 'g' : q === 1 ? 'unidade' : 'unidades');
 
   async function carregarContexto() {
@@ -56,9 +53,13 @@
     out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w + 140} ${h + 130}" font-family="Lato, sans-serif" font-size="12">`);
     out.push(`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" fill="none" stroke="#3a2a1e" stroke-width="1.5"/>`);
     const furos = [];
-    if (res.forma === 'zigzag') {
+    if (res.forma !== 'quadrado') {
       res.ganchos.posicoes_cm.forEach((x) => { furos.push([x, 0]); furos.push([x, H]); });
-      if (opc.trama) {
+      if (opc.trama && res.forma === 'rede') {
+        const xs = res.ganchos.posicoes_cm, d = res.detalhe;
+        for (let i = 0; i + 1 < xs.length; i += 2) out.push(`<polyline points="${X(xs[i])},${Y(H)} ${X(xs[i])},${Y(0)} ${X(xs[i + 1])},${Y(0)} ${X(xs[i + 1])},${Y(H)}" fill="none" stroke="#B5460A" stroke-width="1.2" opacity=".6"/>`);
+        for (let k = 1; k <= d.linhas; k++) { const y = k * d.espacamento_linhas_cm; out.push(`<line x1="${X(xs[0])}" y1="${Y(y)}" x2="${X(xs[xs.length - 1])}" y2="${Y(y)}" stroke="#8B8110" stroke-width="1" opacity=".6"/>`); xs.forEach((x) => out.push(`<circle cx="${X(x)}" cy="${Y(y)}" r="2" fill="#3a2a1e" opacity=".7"/>`)); }
+      } else if (opc.trama) {
         // Linhas das passagens (só na visão interna)
         const n = res.ganchos.cima, s = res.ganchos.espacamento_cm, m = res.ganchos.margem_cm;
         const perc = window.Calc.percursoZigzag(n, s, H).trechos;
@@ -332,8 +333,19 @@
         <h2>Que peça você vai criar?</h2><p class="sub">O tipo define as perguntas das próximas etapas.</p>
         <div class="tipos">${cats.map((c) => `<button type="button" class="tipo-card ${c.id === pj.categoria_id ? 'escolhido' : ''}" data-cat="${c.id}">
           <span class="ico" aria-hidden="true">${esc(c.icone || '◇')}</span><strong>${esc(c.nome)}</strong><span>${esc(c.descricao || (c.artesa_id ? 'Tipo criado por você' : ''))}</span></button>`).join('')}</div>
-        <p class="ajuda" style="margin:14px 0 0;color:var(--texto-2);font-size:13px">Não achou o tipo? Crie em <a href="#/biblioteca">Biblioteca > Categorias</a>.</p>
+        <div style="margin-top:14px"><button type="button" class="botao sec peq" id="novo-tipo-peca">+ Novo tipo de peça</button></div>
+        <select id="sel-novo-tipo" data-add-tabela="categorias" hidden aria-hidden="true"><option value=""></option><option value="__novo"></option></select>
       </section>`;
+    const selNovo = document.getElementById('sel-novo-tipo');
+    document.getElementById('novo-tipo-peca').addEventListener('click', () => { selNovo.value = '__novo'; selNovo.dispatchEvent(new Event('change', { bubbles: true })); });
+    selNovo.addEventListener('change', async () => {
+      if (!selNovo.value || selNovo.value === '__novo') return;
+      const { data } = await sb.from('categorias').select('*').eq('id', selNovo.value).single();
+      if (!data) return;
+      ctx.categorias = [...ctx.categorias, data];
+      pj.categoria_id = data.id; ed.alterado = true;
+      renderEditor(ed, ctx);
+    });
     corpo.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
       const antes = familiaDe(ctx, pj.categoria_id);
       pj.categoria_id = b.dataset.cat;
@@ -424,7 +436,7 @@
 
   function passoPeca(ed, ctx, corpo) {
     const fam = familiaDe(ctx, ed.projeto.categoria_id);
-    const botoes = fam === 'vao' ? ['vao', 'acessorio', 'trecho_sem_trama', 'no'] : ['trama', 'trecho_sem_trama', 'no', 'acessorio'];
+    const botoes = fam === 'vao' ? ['vao', 'acessorio', 'trecho_sem_trama', 'no', 'corte'] : ['trama', 'trecho_sem_trama', 'no', 'acessorio', 'corte'];
     corpo.innerHTML = `
       <section class="card">
         <h2>${fam === 'vao' ? 'O vão e os ganchos' : 'As partes da peça'}</h2>
@@ -482,7 +494,7 @@
     const fios = ctx.materiais.filter((m) => grupoDe(m.tipo_material_id) === 'fio');
     const acess = ctx.materiais.filter((m) => grupoDe(m.tipo_material_id) !== 'fio');
     const tramasIdx = ed.componentes.map((c, i) => (c.tipo === 'trama' ? i : -1)).filter((i) => i >= 0);
-    const selMat = (lista, atual, nome = 'material_id') => `<select data-k="${nome}"><option value="">Escolha...</option>${opcoesLista(lista, atual, nomeMaterial)}</select>`;
+    const selMat = (lista, atual, nome = 'material_id') => `<select data-k="${nome}"><option value="">Escolha...</option>${opcoesLista(lista, atual, nomeMaterial)}<option value="__material">+ Cadastrar material novo...</option></select>`;
     const semMat = (lista, tipo) => (lista.length ? '' : `<span class="ajuda" style="color:var(--perigo)">Nenhum ${tipo} na Biblioteca. <a href="#/biblioteca">Cadastrar</a></span>`);
     const n = (k, v, suf, extra = '') => `<div class="com-sufixo"><input type="number" step="any" data-k="${k}" value="${v ?? ''}" ${extra}><span>${suf}</span></div>`;
     const selAplicar = (c) => `<select data-k="aplicar_em"><option value="">${c.tipo === 'no' ? 'Nós avulsos (informo a quantidade)' : 'Fios próprios (informo quantos)'}</option>${tramasIdx.map((i) => `<option value="${i}" ${String(c.parametros.aplicar_em) === String(i) ? 'selected' : ''}>Nos fios da parte ${i + 1}: ${esc(ed.componentes[i].descricao || 'Trama')}</option>`).join('')}</select>`;
@@ -493,7 +505,8 @@
       let corpo = '';
       if (c.tipo === 'vao') {
         const vaoTramas = ctx.tramas.filter((t) => t.tipo !== 'geral');
-        const forma = ((ctx.tramas.find((t) => t.id === c.trama_id) || {}).tipo) === 'vao_quadrado' ? 'quadrado' : 'zigzag';
+        const tipoT = (ctx.tramas.find((t) => t.id === c.trama_id) || {}).tipo;
+        const forma = tipoT === 'vao_quadrado' ? 'quadrado' : tipoT === 'vao_rede' ? 'rede' : 'zigzag';
         corpo = `
           <div class="grade g2">
             ${campo('Trama do vão', `<select data-k="trama_id">${opcoesLista(vaoTramas, c.trama_id)}</select>`, '', A.trama_vao)}
@@ -503,12 +516,12 @@
             ${campo('Largura', n('largura_cm', p.largura_cm, 'cm'), '', A.largura_vao)}
             ${campo('Altura', n('altura_cm', p.altura_cm, 'cm'), '', A.altura_vao)}
             ${campo('Telas iguais', n('telas', p.telas ?? 1, 'un.', 'min="1" step="1"'), '', A.telas)}
-            ${forma === 'zigzag' ? campo('Margem nas pontas', n('margem_cm', p.margem_cm ?? 2.5, 'cm'), '', A.margem) : '<div></div>'}
+            ${forma !== 'quadrado' ? campo('Margem nas pontas', n('margem_cm', p.margem_cm ?? 2.5, 'cm'), '', A.margem) : '<div></div>'}
             ${campo('Espaço mínimo', n('esp_min', p.esp_min ?? 9, 'cm'), '', A.esp_min)}
             ${campo('Espaço máximo', n('esp_max', p.esp_max ?? 10, 'cm'), '', A.esp_max)}
           </div>
           <div class="grade g3" style="margin-top:14px">
-            ${campo('Gancho', `<select data-k="gancho_material_id"><option value="">Não cobrar ganchos</option>${opcoesLista(acess, p.gancho_material_id, nomeMaterial)}</select>`, '', A.gancho)}
+            ${campo('Gancho', `<select data-k="gancho_material_id"><option value="">Não cobrar ganchos</option>${opcoesLista(acess, p.gancho_material_id, nomeMaterial)}<option value="__material">+ Cadastrar material novo...</option></select>`, '', A.gancho)}
             ${campo('Quem fornece os ganchos', `<select data-k="ganchos_fornecidos">${opcoes({ artesa: 'Eu', cliente: 'Cliente ou marceneiro' }, p.ganchos_fornecidos || 'artesa')}</select>`, '', A.fornece)}
             ${campo('Quem coloca os ganchos', `<select data-k="colocacao">${opcoes({ artesa: 'Eu', marceneiro: 'Marceneiro' }, p.colocacao || 'artesa')}</select>`, '', A.coloca)}
           </div>`;
@@ -536,9 +549,16 @@
         const avulso = !(p.aplicar_em !== undefined && p.aplicar_em !== '' && p.aplicar_em !== null);
         corpo = `
           <div class="grade g2">
-            ${campo('Nó', `<select data-k="no_id"><option value="">Escolha...</option>${opcoesLista(estado.nos, c.no_id)}</select>`, '', A.no)}
+            ${campo('Nó', `<select data-k="no_id" data-add-tabela="nos"><option value="">Escolha...</option>${opcoesLista(estado.nos, c.no_id)}${App.opcaoAdicionar()}</select>`, '', A.no)}
             ${campo('Onde', selAplicar(c), '', A.onde)}
             ${avulso ? campo('Fio', selMat(fios, c.material_id), '', A.fio) + campo('Quantidade de nós', n('quantidade', p.quantidade, 'nós', 'step="1"'), '', A.qtd_nos) : campo('Nós em cada fio', n('nos_por_fio', p.nos_por_fio, 'nós', 'step="1"'), '', A.nos_por_fio)}
+          </div>`;
+      } else if (c.tipo === 'corte') {
+        corpo = `
+          <div class="grade g3">
+            ${campo('Material', selMat([...fios, ...acess], c.material_id), '', A.fio)}
+            ${campo('Quantos pedaços', n('quantidade', p.quantidade, 'pedaços', 'step="1"'), '', 'Quantos pedaços iguais você corta.')}
+            ${campo('Tamanho de cada um', n('comprimento_cm', p.comprimento_cm, 'cm'), '', 'Já com as sobras que você costuma deixar.')}
           </div>`;
       } else if (c.tipo === 'acessorio') {
         corpo = `
@@ -571,6 +591,18 @@
         const k = el.dataset.k;
         el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
           let v = el.value;
+          if (v === '__material') {
+            el.value = (RAIZ.includes(k) ? c[k] : c.parametros[k]) || '';
+            App.formMaterial(null, (novo) => {
+              if (!novo) return;
+              ctx.materiais = [...ctx.materiais, novo];
+              if (RAIZ.includes(k)) c[k] = novo.id; else c.parametros[k] = novo.id;
+              ed.alterado = true;
+              desenharComponentes(ed, ctx);
+              recalcular(ed, ctx);
+            });
+            return;
+          }
           if (el.type === 'number') v = valorNum(v);
           if (RAIZ.includes(k)) c[k] = v || (k === 'descricao' ? '' : null);
           else c.parametros[k] = v === '' ? null : v;
@@ -636,14 +668,17 @@
       let html = '';
       if (c.tipo === 'vao' && r.ganchos) {
         const g = r.ganchos;
-        const gTxt = r.forma === 'zigzag'
+        const gTxt = r.forma !== 'quadrado'
           ? `${g.cima} em cima + ${g.baixo} embaixo, a cada <strong>${numero(g.espacamento_cm)} cm</strong> (margem de ${numero(g.margem_cm)} cm)`
           : `${g.cima} em cima, ${g.baixo} embaixo, ${g.esquerda} em cada lateral · largura a cada <strong>${numero(g.espacamento_largura_cm)} cm</strong>, altura a cada <strong>${numero(g.espacamento_altura_cm)} cm</strong>`;
         html = `<div class="calculo" style="margin-top:8px">
             <div><strong>${g.total} ganchos</strong>${r.telas > 1 ? ` (${g.por_tela} por tela)` : ''}: ${gTxt}</div>
             <div style="margin-top:6px"><strong>${numero(r.metros)} m de corda</strong> · área ${numero(r.area_m2, 4)} m²</div>
+            ${r.forma === 'rede' ? `<div style="margin-top:6px">${r.detalhe.linhas} linhas horizontais a ${numero(r.detalhe.espacamento_linhas_cm)} cm · ${r.detalhe.nos} nós DC</div>` : ''}
             <div style="margin-top:6px">${r.cortes.map((k) => `${k.quantidade}× ${esc(k.descricao.toLowerCase())} de ${numero(k.comprimento_m)} m${k.emendas ? ` (${k.emendas} emenda${k.emendas > 1 ? 's' : ''})` : ''}`).join('<br>')}</div>
           </div>${r.avisos && r.avisos.length ? `<div class="aviso" style="margin-top:8px">${r.avisos.map(esc).join('<br>')}</div>` : ''}`;
+      } else if (c.tipo === 'corte' && r.cortes) {
+        html = `<div class="calculo" style="margin-top:8px">${r.cortes[0].quantidade} pedaços de ${numero(r.cortes[0].comprimento_m)} m = <strong>${numero(r.metros)} m</strong></div>`;
       } else if (c.tipo === 'trama' && r.cortes) {
         html = `<div class="calculo" style="margin-top:8px">${r.tramas} tramas lado a lado → <strong>${r.fios_por_peca * r.pecas} fios de ${numero(r.cortes[0].comprimento_m)} m</strong> = <strong>${numero(r.metros)} m</strong><br>
           <span style="font-size:13px">Cada fio: ${numero(r.detalhe.trama_m)} m de trama${r.detalhe.extras_m ? ` + ${numero(r.detalhe.extras_m)} m de outras partes` : ''} + ${numero(r.detalhe.sobra_m)} m de sobra</span></div>`;
@@ -809,8 +844,8 @@
     const p = c.parametros, g = r.ganchos;
     const tabela = (titulo, pos) => `<h3 style="margin:14px 0 6px;font-size:14px">${esc(titulo)}</h3>
       <table style="width:100%;border-collapse:collapse;font-size:11px">${chunk(pos, 10).map((linha, li) => `<tr>${linha.map((v, j) => `<td style="border:1px solid #ddd;padding:3px 4px;text-align:center"><span style="color:#999">${li * 10 + j + 1}</span><br><strong>${numero(v)}</strong></td>`).join('')}</tr>`).join('')}</table>`;
-    const linhas = r.forma === 'zigzag'
-      ? [['Trama', 'Zigzag'], ['Vão', `${numero(p.largura_cm)} × ${numero(p.altura_cm)} cm`], ['Telas', r.telas], ['Ganchos por tela', `${g.cima} em cima + ${g.baixo} embaixo`], ['Total de ganchos', g.total], ['Margem nas pontas', `${numero(g.margem_cm)} cm`], ['Espaço entre ganchos', `${numero(g.espacamento_cm)} cm`]]
+    const linhas = r.forma !== 'quadrado'
+      ? [['Trama', r.forma === 'rede' ? 'Rede de escalada' : 'Zigzag'], ['Vão', `${numero(p.largura_cm)} × ${numero(p.altura_cm)} cm`], ['Telas', r.telas], ['Ganchos por tela', `${g.cima} em cima + ${g.baixo} embaixo`], ['Total de ganchos', g.total], ['Margem nas pontas', `${numero(g.margem_cm)} cm`], ['Espaço entre ganchos', `${numero(g.espacamento_cm)} cm`]]
       : [['Trama', 'Quadrado'], ['Vão', `${numero(p.largura_cm)} × ${numero(p.altura_cm)} cm`], ['Telas', r.telas], ['Ganchos por tela', `${g.cima} em cima, ${g.baixo} embaixo, ${g.esquerda} em cada lateral`], ['Total de ganchos', g.total], ['Espaço na largura', `${numero(g.espacamento_largura_cm)} cm`], ['Espaço na altura', `${numero(g.espacamento_altura_cm)} cm`], ['Cantos', 'sem gancho']];
     return `
       <div class="folha" style="font-size:13px">
@@ -821,7 +856,7 @@
         </div>
         <table style="border-collapse:collapse;margin-bottom:12px">${linhas.map(([k, v]) => `<tr><td style="padding:3px 18px 3px 0;color:#6b5646">${esc(k)}</td><td style="padding:3px 0;font-weight:700">${esc(String(v))}</td></tr>`).join('')}</table>
         <div style="border:1px solid #ddd;border-radius:6px;padding:6px">${desenhoVao(r, p, { largura: 640, altura: 430, cor: perfil.cor_primaria })}</div>
-        ${r.forma === 'zigzag' ? tabela('Posição de cada furo, medida da borda esquerda (cm). Igual em cima e embaixo.', g.posicoes_cm)
+        ${r.forma !== 'quadrado' ? tabela('Posição de cada furo, medida da borda esquerda (cm). Igual em cima e embaixo.', g.posicoes_cm)
           : tabela('Em cima e embaixo: posição medida da borda esquerda (cm)', g.posicoes_largura_cm) + tabela('Laterais: posição medida da borda de cima (cm)', g.posicoes_altura_cm)}
         <p style="margin-top:auto;font-size:11px;color:#6b5646">Medidas calculadas para o vão informado. Se a medida da obra mudar, peça uma ficha nova. Emitida em ${new Date().toLocaleDateString('pt-BR')}.</p>
       </div>`;

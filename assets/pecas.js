@@ -93,7 +93,7 @@
       corpo: `
         <div class="grade g2">
           ${campo('Nome', `<input name="nome" value="${esc(p.nome)}" required placeholder="Ex.: Hang plant médio">`)}
-          ${campo('Tipo de peça', `<select name="categoria_id"><option value="">Escolha...</option>${opcoesLista(cats, p.categoria_id)}</select>`)}
+          ${campo('Tipo de peça', `<select name="categoria_id" data-add-tabela="categorias"><option value="">Escolha...</option>${opcoesLista(cats, p.categoria_id)}${App.opcaoAdicionar()}</select>`)}
           ${campo('Variação', `<input name="variacao" value="${esc(p.variacao)}" placeholder="Ex.: cru, 80 cm">`, '', 'Cor, tamanho ou modelo. Cada variação com preço ou estoque diferente vira uma peça separada.')}
           ${campo('Preço de venda', `<div class="com-sufixo"><input type="number" step="any" name="preco_venda" value="${p.preco_venda ?? ''}"><span>R$</span></div>`)}
           ${campo('Custo por peça', `<div class="com-sufixo"><input type="number" step="any" name="custo_unitario" value="${p.custo_unitario ?? ''}"><span>R$</span></div>`, '', 'Material + horas de trabalho de uma peça. Se a peça veio de um projeto, já vem preenchido.')}

@@ -112,14 +112,45 @@
   }
 
   function calcularVao(p, material, ctx, perfil) {
-    const forma = p.forma === 'quadrado' ? 'quadrado' : 'zigzag';
+    const forma = p.forma === 'quadrado' ? 'quadrado' : p.forma === 'rede' ? 'rede' : 'zigzag';
     const L = num(p.largura_cm), H = num(p.altura_cm), telas = Math.max(1, Math.round(num(p.telas, 1)));
     const espMin = num(p.esp_min, 9), espMax = num(p.esp_max, 10);
     const ponta = num(perfil.ponta_cm, 20), acabG = num(perfil.acabamento_gancho_m, 1) * 100;
     const avisos = [];
     if (!(L > 0 && H > 0)) return { erro: 'Informe largura e altura do vão.' };
     let r;
-    if (forma === 'zigzag') {
+    if (forma === 'rede') {
+      // Rede de escalada: ganchos só em cima e embaixo, em número par.
+      // Vertical em pedaços (cada um sobe e desce, 2 ganchos), horizontal única com nó em cada cruzamento.
+      const margem = num(p.margem_cm, 2.5);
+      let g = ganchosComMargem(L, espMax, margem);
+      if (g.ganchos % 2 === 1) { const iv = g.intervalos + 1; g = { ganchos: iv + 1, espacamento: (L - 2 * margem) / iv, intervalos: iv, margem }; }
+      if (g.espacamento < espMin - 1e-9) avisos.push(`Para o número de ganchos ficar par, o espaçamento ficou em ${r2(g.espacamento)} cm.`);
+      const s = g.espacamento, n = g.ganchos;
+      const linhas = Math.max(1, Math.round(H / s) - 1);
+      const sv = H / (linhas + 1);
+      let consumoNo = consumoDoNo(ctx, p.no_id || (ctx.noDC || {}).id, material);
+      if (consumoNo === null) { consumoNo = 20; avisos.push('Não achei o consumo do nó DC para este material e espessura. Usei 20 cm. Cadastre na Biblioteca > Nós.'); }
+      const pecas = n / 2;
+      const pedaco = 2 * H + s + 2 * linhas * consumoNo + 2 * ponta;
+      const ePed = emendas(pedaco, material);
+      const horiz = linhas * (n - 1) * s + (linhas - 1) * sv + linhas * n * consumoNo + 2 * ponta;
+      const eH = emendas(horiz, material);
+      const ganchosTela = n * 2;
+      const acab = ganchosTela * acabG;
+      const porTela = pecas * (pedaco + ePed * EMENDA_CM) + horiz + eH * EMENDA_CM + acab;
+      r = {
+        forma, telas,
+        ganchos: { cima: n, baixo: n, por_tela: ganchosTela, total: ganchosTela * telas, espacamento_cm: r2(s), margem_cm: margem, posicoes_cm: Array.from({ length: n }, (_, i) => r2(margem + i * s)) },
+        cortes: [
+          { descricao: 'Corda vertical (cada pedaço sobe e desce)', quantidade: pecas * telas, comprimento_m: r2((pedaco + ePed * EMENDA_CM) / 100), emendas: ePed },
+          { descricao: 'Corda horizontal (única)', quantidade: telas, comprimento_m: r2((horiz + eH * EMENDA_CM) / 100), emendas: eH },
+          { descricao: 'Acabamento dos ganchos', quantidade: ganchosTela * telas, comprimento_m: r2(acabG / 100) }
+        ],
+        detalhe: { linhas, espacamento_linhas_cm: r2(sv), nos: linhas * n, consumo_no_cm: consumoNo, vertical_m: r2(pecas * pedaco / 100), horizontal_m: r2(horiz / 100), acabamento_m: r2(acab / 100) },
+        metros: r2((porTela * telas) / 100)
+      };
+    } else if (forma === 'zigzag') {
       const margem = num(p.margem_cm, 2.5);
       const g = ganchosComMargem(L, espMax, margem);
       if (g.espacamento < espMin - 1e-9) avisos.push(`O espaçamento ficou em ${r2(g.espacamento)} cm, abaixo de ${espMin} cm.`);
@@ -199,6 +230,7 @@
     const acharMat = (id) => (ctx.materiais || []).find((m) => m.id === id) || null;
     const acharTrama = (id) => (ctx.tramas || []).find((t) => t.id === id) || null;
     ctx.noFestone = (ctx.nos || []).find((n) => /feston/i.test(n.nome)) || null;
+    ctx.noDC = (ctx.nos || []).find((n) => /^dc$/i.test(String(n.nome).trim())) || null;
 
     const res = componentes.map(() => ({}));
     const extras = componentes.map(() => 0); // cm somados em cada fio de uma trama
@@ -225,7 +257,12 @@
       const aplicado = p.aplicar_em !== '' && p.aplicar_em !== null && p.aplicar_em !== undefined && Number(p.aplicar_em) >= 0;
       try {
         if (c.tipo === 'trama') res[i] = calcularTrama(p, acharTrama(c.trama_id), perfil, extras[i]);
-        else if (c.tipo === 'vao') res[i] = calcularVao({ ...p, forma: p.forma || ((acharTrama(c.trama_id) || {}).tipo === 'vao_quadrado' ? 'quadrado' : 'zigzag') }, mat, ctx, perfil);
+        else if (c.tipo === 'vao') { const tt = (acharTrama(c.trama_id) || {}).tipo; res[i] = calcularVao({ ...p, forma: p.forma || (tt === 'vao_quadrado' ? 'quadrado' : tt === 'vao_rede' ? 'rede' : 'zigzag') }, mat, ctx, perfil); }
+        else if (c.tipo === 'corte') {
+          const q = Math.max(0, Math.round(num(p.quantidade))), comp = num(p.comprimento_cm);
+          if (!(q > 0 && comp > 0)) res[i] = { erro: 'Informe quantos pedaços e o comprimento de cada um.' };
+          else res[i] = { cortes: [{ descricao: c.descricao || 'Corte livre', quantidade: q, comprimento_m: r2(comp / 100) }], metros: r2(q * comp / 100) };
+        }
         else if (c.tipo === 'trecho_sem_trama') {
           if (aplicado) res[i] = { incluido_em: Number(p.aplicar_em), metros: 0 };
           else {
