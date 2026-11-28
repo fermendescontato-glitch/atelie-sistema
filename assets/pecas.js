@@ -15,6 +15,24 @@
   const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
   const fotoDe = (p) => ((p.fotos || [])[0] || {}).url || '';
   const nomeCompleto = (p) => p.nome + (p.variacao ? ' · ' + p.variacao : '');
+  const temPromo = (p) => Number(p.preco_promocional) > 0 && Number(p.preco_promocional) < Number(p.preco_venda);
+  const precoEfetivo = (p) => (temPromo(p) ? Number(p.preco_promocional) : Number(p.preco_venda || 0));
+  // Desconto em % ou em R$: devolve as duas formas e o preço final
+  function calcDesconto(base, tipo, v) {
+    base = Number(base) || 0; v = Math.max(0, Number(v) || 0);
+    const rs = tipo === 'pct' ? base * v / 100 : v;
+    const pct = tipo === 'pct' ? v : (base ? (v / base) * 100 : 0);
+    return { rs: r2(rs), pct, final: r2(base - rs) };
+  }
+  const textoDesconto = (base, c) => !c.rs ? 'Sem desconto.'
+    : c.rs > base ? '<span style="color:var(--perigo)">O desconto é maior que o preço.</span>'
+    : `Desconto de <strong>${moeda(c.rs)}</strong> (<strong>${numero(c.pct, 1)}%</strong>) · sai por <strong>${moeda(c.final)}</strong>`;
+  const blocoDesconto = (tipo, valor, rotulo) => `
+        <div class="grade g2">
+          ${campo(rotulo || 'Desconto em', `<select name="desconto_tipo">${opcoes({ pct: '% (porcentagem)', valor: 'R$ (valor)' }, tipo || 'pct')}</select>`)}
+          ${campo('Desconto', `<div class="com-sufixo"><input type="number" step="any" min="0" name="desconto_valor" value="${valor ?? ''}"><span data-sufixo-desc>${(tipo || 'pct') === 'pct' ? '%' : 'R$'}</span></div>`)}
+        </div>
+        <div class="calculo" data-calc-desc style="margin-top:8px"></div>`;
 
   async function categorias() {
     const { data } = await sb.from('categorias').select('id, nome').eq('ativo', true).order('ordem').order('nome');
@@ -33,7 +51,7 @@
     const lista = todas.filter((p) => (!f.busca || [p.nome, p.variacao, p.descricao].join(' ').toLowerCase().includes(f.busca.toLowerCase()))
       && (!f.cat || p.categoria_id === f.cat) && (!f.soEstoque || Number(p.quantidade) > 0));
     const qtd = todas.reduce((s, p) => s + Math.max(0, Number(p.quantidade)), 0);
-    const valor = todas.reduce((s, p) => s + Math.max(0, Number(p.quantidade)) * Number(p.preco_venda || 0), 0);
+    const valor = todas.reduce((s, p) => s + Math.max(0, Number(p.quantidade)) * precoEfetivo(p), 0);
     const custo = todas.reduce((s, p) => s + Math.max(0, Number(p.quantidade)) * Number(p.custo_unitario || 0), 0);
     const nomeCat = (id) => (cats.find((c) => c.id === id) || {}).nome || '';
     area().innerHTML = `
@@ -60,12 +78,13 @@
           <div class="peca-info">
             <strong>${esc(p.nome)}</strong>
             <span class="peca-sub">${esc([p.variacao, nomeCat(p.categoria_id)].filter(Boolean).join(' · ') || ' ')}</span>
-            <div class="peca-linha"><span class="peca-preco">${moeda(p.preco_venda)}</span><span>${numero(q, 0)} em estoque ${selo}</span></div>
+            <div class="peca-linha"><span class="peca-preco">${temPromo(p) ? `${moeda(p.preco_promocional)} <s style="font-size:13px;font-weight:400;color:var(--texto-2)">${moeda(p.preco_venda)}</s> <span class="selo status-pendente">-${numero((1 - p.preco_promocional / p.preco_venda) * 100, 0)}%</span>` : moeda(p.preco_venda)}</span><span>${numero(q, 0)} em estoque ${selo}</span></div>
           </div>
           <div class="peca-acoes">
             <button type="button" class="botao peq" data-vender="${p.id}" ${q <= 0 ? 'disabled' : ''}>Vender</button>
             <button type="button" class="botao sec peq" data-entrada="${p.id}">+ Entrada</button>
             <button type="button" class="botao texto peq" data-editar="${p.id}">Editar</button>
+            <button type="button" class="botao texto peq" data-duplicar="${p.id}">Duplicar</button>
             <button type="button" class="botao texto peq" data-hist="${p.id}">Histórico</button>
           </div>
         </article>`;
@@ -80,6 +99,12 @@
     area().querySelectorAll('[data-vender]').forEach((b) => b.addEventListener('click', () => venderPeca(achar(b.dataset.vender), recarregar)));
     area().querySelectorAll('[data-entrada]').forEach((b) => b.addEventListener('click', () => entradaPeca(achar(b.dataset.entrada), recarregar)));
     area().querySelectorAll('[data-editar]').forEach((b) => b.addEventListener('click', () => formPeca(achar(b.dataset.editar), cats, recarregar)));
+    area().querySelectorAll('[data-duplicar]').forEach((b) => b.addEventListener('click', () => {
+      const o = achar(b.dataset.duplicar);
+      formPeca({ nome: o.nome, categoria_id: o.categoria_id, variacao: '', descricao: o.descricao, preco_venda: o.preco_venda, custo_unitario: o.custo_unitario,
+        estoque_minimo: o.estoque_minimo, fotos: [...(o.fotos || [])], desconto_tipo: o.desconto_tipo, desconto_valor: o.desconto_valor, preco_promocional: o.preco_promocional,
+        quantidade: 1, _copiaDe: nomeCompleto(o) }, cats, recarregar);
+    }));
     area().querySelectorAll('[data-hist]').forEach((b) => b.addEventListener('click', () => historicoPeca(achar(b.dataset.hist))));
   };
 
@@ -89,16 +114,20 @@
     p = p || { quantidade: 0, fotos: [] };
     let fotos = [...(p.fotos || [])];
     abrirModal({
-      titulo: p.id ? 'Editar peça' : 'Nova peça pronta',
-      corpo: `
+      titulo: p.id ? 'Editar peça' : p._copiaDe ? 'Duplicar peça' : 'Nova peça pronta',
+      corpo: `${p._copiaDe ? `<p class="ajuda" style="margin:0 0 12px">Cópia de <strong>${esc(p._copiaDe)}</strong>. Troque a variação (cor, tamanho), a quantidade e as fotos, se precisar.</p>` : ''}
         <div class="grade g2">
           ${campo('Nome', `<input name="nome" value="${esc(p.nome)}" required placeholder="Ex.: Hang plant médio">`)}
           ${campo('Tipo de peça', `<select name="categoria_id" data-add-tabela="categorias"><option value="">Escolha...</option>${opcoesLista(cats, p.categoria_id)}${App.opcaoAdicionar()}</select>`)}
           ${campo('Variação', `<input name="variacao" value="${esc(p.variacao)}" placeholder="Ex.: cru, 80 cm">`, '', 'Cor, tamanho ou modelo. Cada variação com preço ou estoque diferente vira uma peça separada.')}
           ${campo('Preço de venda', `<div class="com-sufixo"><input type="number" step="any" name="preco_venda" value="${p.preco_venda ?? ''}"><span>R$</span></div>`)}
           ${campo('Custo por peça', `<div class="com-sufixo"><input type="number" step="any" name="custo_unitario" value="${p.custo_unitario ?? ''}"><span>R$</span></div>`, '', 'Material + horas de trabalho de uma peça. Se a peça veio de um projeto, já vem preenchido.')}
-          ${p.id ? campo('Em estoque', `<input value="${numero(p.quantidade, 0)}" disabled>`, 'Para mudar, use + Entrada ou Vender.') : campo('Quantas você tem hoje', '<input type="number" step="1" min="0" name="quantidade" value="1">')}
+          ${p.id ? campo('Em estoque', `<input value="${numero(p.quantidade, 0)}" disabled>`, 'Para mudar, use + Entrada ou Vender.') : campo('Quantas você tem hoje', `<input type="number" step="1" min="0" name="quantidade" value="${p.quantidade ?? 1}">`)}
           ${campo('Avisar quando ficar abaixo de', `<input type="number" step="1" min="0" name="estoque_minimo" value="${p.estoque_minimo ?? 0}">`)}
+        </div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--linha)">
+          <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" name="tem_desconto" ${Number(p.desconto_valor) > 0 ? 'checked' : ''}> Vender com preço promocional</label>
+          <div id="pc-desc" style="margin-top:10px">${blocoDesconto(p.desconto_tipo, p.desconto_valor)}</div>
         </div>
         <div style="margin-top:14px">${campo('Descrição', `<textarea name="descricao" rows="2" placeholder="Materiais, medidas, cuidados...">${esc(p.descricao)}</textarea>`)}</div>
         <div class="campo" style="margin-top:14px"><label>Fotos</label>
@@ -126,16 +155,27 @@
           desenhar();
         });
         const margem = () => {
-          const pv = valorNum(form.preco_venda.value) || 0, c = valorNum(form.custo_unitario.value) || 0;
+          const base = valorNum(form.preco_venda.value) || 0, c = valorNum(form.custo_unitario.value) || 0;
+          const ativo = form.tem_desconto.checked;
+          document.getElementById('pc-desc').style.display = ativo ? '' : 'none';
+          form.querySelector('[data-sufixo-desc]').textContent = form.desconto_tipo.value === 'pct' ? '%' : 'R$';
+          const cd = calcDesconto(base, form.desconto_tipo.value, valorNum(form.desconto_valor.value));
+          form.querySelector('[data-calc-desc]').innerHTML = textoDesconto(base, cd);
+          const pv = ativo && cd.rs > 0 && cd.rs <= base ? cd.final : base;
           const tx = Number((estado.perfil || {}).taxa_maquininha_pct || 0) + Number((estado.perfil || {}).imposto_pct || 0);
           const lucro = pv * (1 - tx / 100) - c;
           document.getElementById('pc-margem').innerHTML = pv ? `Lucro por peça, tirando taxa e imposto: <strong>${moeda(lucro)}</strong>${pv ? ` (${numero((lucro / pv) * 100, 1)}%)` : ''}${lucro < 0 ? ' · <span style="color:var(--perigo)">prejuízo</span>' : ''}` : 'Preencha o preço para ver o lucro por peça.';
         };
-        form.addEventListener('input', margem); margem();
+        form.addEventListener('input', margem); form.addEventListener('change', margem); margem();
       },
       aoSalvar: async (d) => {
         const t = (k) => (d.get(k) || '').trim() || null;
-        const dados = { nome: t('nome'), categoria_id: t('categoria_id'), variacao: t('variacao'), descricao: t('descricao'), preco_venda: valorNum(d.get('preco_venda')) || 0, custo_unitario: valorNum(d.get('custo_unitario')) || 0, estoque_minimo: valorNum(d.get('estoque_minimo')) || 0, fotos };
+        const base = valorNum(d.get('preco_venda')) || 0;
+        const ativo = d.get('tem_desconto') === 'on' && (valorNum(d.get('desconto_valor')) || 0) > 0;
+        const cd = calcDesconto(base, d.get('desconto_tipo'), valorNum(d.get('desconto_valor')));
+        if (ativo && cd.rs > base) throw new Error('O desconto é maior que o preço de venda.');
+        const promo = ativo ? { desconto_tipo: d.get('desconto_tipo'), desconto_valor: valorNum(d.get('desconto_valor')), preco_promocional: cd.final } : { desconto_tipo: null, desconto_valor: null, preco_promocional: null };
+        const dados = { nome: t('nome'), categoria_id: t('categoria_id'), variacao: t('variacao'), descricao: t('descricao'), preco_venda: valorNum(d.get('preco_venda')) || 0, custo_unitario: valorNum(d.get('custo_unitario')) || 0, estoque_minimo: valorNum(d.get('estoque_minimo')) || 0, fotos, ...promo };
         if (!dados.nome) throw new Error('Informe o nome da peça.');
         if (p.projeto_id && !p.id) dados.projeto_id = p.projeto_id;
         if (p.id) { const r = await sb.from('pecas').update(dados).eq('id', p.id); if (r.error) throw r.error; }
@@ -190,9 +230,10 @@
       corpo: `<p style="margin:0 0 12px"><strong>${esc(nomeCompleto(p))}</strong> · ${numero(p.quantidade, 0)} em estoque</p>
         <div class="grade g3">
           ${campo('Quantidade', `<input type="number" step="1" min="1" name="quantidade" value="1">`)}
-          ${campo('Valor por peça', `<div class="com-sufixo"><input type="number" step="any" name="valor" value="${p.preco_venda ?? ''}"><span>R$</span></div>`, '', 'Já vem com o preço cadastrado. Mude se der desconto.')}
+          ${campo('Preço por peça', `<div class="com-sufixo"><input type="number" step="any" name="valor" value="${precoEfetivo(p) || ''}"><span>R$</span></div>`, temPromo(p) ? `Preço promocional (cheio: ${moeda(p.preco_venda)}).` : '', 'Já vem com o preço cadastrado.')}
           ${campo('Cliente', `<select name="cliente_id"><option value="">Consumidor final</option>${opcoesLista(clientes || [], null)}</select>`)}
         </div>
+        <div style="margin-top:12px">${blocoDesconto('pct', '', 'Desconto nesta venda')}</div>
         <label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" name="recebido" checked> Já recebi o pagamento</label>
         <div class="grade g3" style="margin-top:10px" id="bloco-pag">
           ${campo('Forma', `<select name="forma">${opcoes(FORMAS, 'pix')}</select>`)}
@@ -202,7 +243,11 @@
         <div class="calculo" id="calc-venda" style="margin-top:12px"></div>`,
       aoAbrir: (form) => {
         const att = () => {
-          const q = Math.max(1, Math.round(valorNum(form.quantidade.value) || 1)), v = valorNum(form.valor.value) || 0, total = q * v;
+          const base = valorNum(form.valor.value) || 0;
+          form.querySelector('[data-sufixo-desc]').textContent = form.desconto_tipo.value === 'pct' ? '%' : 'R$';
+          const cd = calcDesconto(base, form.desconto_tipo.value, valorNum(form.desconto_valor.value));
+          form.querySelector('[data-calc-desc]').innerHTML = textoDesconto(base, cd) + (cd.rs ? ' por peça' : '');
+          const q = Math.max(1, Math.round(valorNum(form.quantidade.value) || 1)), v = cd.rs <= base ? cd.final : base, total = q * v;
           const rec = form.recebido.checked;
           form.parcelas.closest('.campo').style.visibility = rec && form.forma.value === 'credito' ? 'visible' : 'hidden';
           form.forma.closest('.campo').style.visibility = rec ? 'visible' : 'hidden';
@@ -214,7 +259,10 @@
       },
       aoSalvar: async (d) => {
         const q = Math.max(1, Math.round(valorNum(d.get('quantidade')) || 1));
-        const v = valorNum(d.get('valor')) || 0, total = r2(q * v);
+        const base = valorNum(d.get('valor')) || 0;
+        const cd = calcDesconto(base, d.get('desconto_tipo'), valorNum(d.get('desconto_valor')));
+        if (cd.rs > base) throw new Error('O desconto é maior que o preço.');
+        const v = cd.final, total = r2(q * v);
         if (q > Number(p.quantidade) && !confirm(`Você tem só ${numero(p.quantidade, 0)} em estoque. Registrar a venda mesmo assim?`)) return false;
         const data = d.get('data') || hojeISO();
         const venda = await sb.from('vendas').insert({ cliente_id: d.get('cliente_id') || null, data, descricao: nomeCompleto(p) + (q > 1 ? ` (${q})` : ''), valor_total: total }).select('id').single();
